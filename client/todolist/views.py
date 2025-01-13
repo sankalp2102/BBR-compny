@@ -8,8 +8,8 @@ from reportlab.lib.pagesizes import letter
 from django.http import HttpResponse
 from django.utils import timezone
 import io
-from .models import Task, TaskIncompleteReport , Site
-from .serializers import TaskSerializer
+from .models import Task, Site
+from .serializers import TaskSerializer, TaskCompleteReportSerializer, TaskIncompleteReportSerializer
 
 
 class ImportTasksView(APIView):
@@ -49,39 +49,56 @@ class TaskListView(APIView):
         tasks = Task.objects.filter(site_id=site_id)
         serializer = TaskSerializer(tasks, many=True)
         return Response(serializer.data)
-
-class TaskUpdateView(APIView):
+    
+class TaskCompleteView(APIView):
     def post(self, request, task_id):
-        task = get_object_or_404(Task, id=task_id)
-        action = request.data.get('action')
+        serializers = TaskCompleteReportSerializer(data = request.data)
+        if not serializers.is_valid():
+            return Response({'status': 403, 'message': 'Something went wrong'})
+        serializers.save()
+        return Response({'status': 200, 'message': 'Data Recieve'})
+    
+class TaskIncompleteView(APIView):
+    def post(self, request, task_id):
+        serializers = TaskIncompleteReportSerializer(data = request.data)
+        if not serializers.is_valid():
+            return Response({'status': 403, 'message': 'Something went wrong'})
+        serializers.save()
+        return Response({'status': 200, 'message': 'Data Recieve'})
+    
+
+# class TaskUpdateView(APIView):
+#     def post(self, request, task_id):
+#         task = get_object_or_404(Task, id=task_id)
+#         action = request.data.get('action')
         
-        if action == 'complete':
-            task.mark_complete()
-            return Response({'message': 'Task marked as complete'})
+#         if action == 'complete':
+#             task.mark_complete()
+#             return Response({'message': 'Task marked as complete'})
         
-        elif action == 'incomplete':
-            reason = request.data.get('reason')
-            photo = request.FILES.get('photo')
+#         elif action == 'incomplete':
+#             reason = request.data.get('reason')
+#             photo = request.FILES.get('photo')
             
-            if not reason or not photo:
-                return Response(
-                    {'error': 'Both reason and photo are required'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+#             if not reason or not photo:
+#                 return Response(
+#                     {'error': 'Both reason and photo are required'},
+#                     status=status.HTTP_400_BAD_REQUEST
+#                 )
             
-            task.mark_incomplete()
-            TaskIncompleteReport.objects.create(
-                task=task,
-                reason=reason,
-                photo=photo
-            )
+#             task.mark_incomplete()
+#             TaskIncompleteReport.objects.create(
+#                 task=task,
+#                 reason=reason,
+#                 photo=photo
+#             )
             
-            return Response({'message': 'Task marked as incomplete with report'})
+#             return Response({'message': 'Task marked as incomplete with report'})
         
-        return Response(
-            {'error': 'Invalid action'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+#         return Response(
+#             {'error': 'Invalid action'},
+#             status=status.HTTP_400_BAD_REQUEST
+#         )
         
 class DailyReportPDFView(APIView):
     def get(self, request, site_id):

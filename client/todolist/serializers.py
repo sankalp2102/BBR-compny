@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Task, TaskIncompleteReport, Site
+from .models import Task, TaskIncompleteReport, Site, TaskCompleteReport, MachineAtteandance
 
 class TaskSerializer(serializers.ModelSerializer):
     class Meta:
@@ -16,4 +16,14 @@ class SiteSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Site
+        fields = '__all__'
+
+class TaskCompleteReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TaskCompleteReport
+        fields = '__all__'
+        
+class MachineAttendanceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MachineAtteandance
         fields = '__all__'

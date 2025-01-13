@@ -1,5 +1,4 @@
 from django.db import models
-from django.utils import timezone
 
 class Site(models.Model):
     name = models.CharField(max_length=200)
@@ -17,20 +16,20 @@ class Task(models.Model):
     description = models.TextField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
-    completed_at = models.DateTimeField(null=True, blank=True)
     
-    def mark_complete(self):
-        self.status = 'completed'
-        self.completed_at = timezone.now()
-        self.save()
-    
-    def mark_incomplete(self):
-        self.status = 'incomplete'
-        self.completed_at = None
-        self.save()
 
 class TaskIncompleteReport(models.Model):
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='incomplete_reports')
     reason = models.TextField()
     photo = models.ImageField(upload_to='task_photos/')
     created_at = models.DateTimeField(auto_now_add=True)
+
+class TaskCompleteReport(models.Model):
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='complete_reports')
+    remark = models.TextField()
+    completed_at = models.DateTimeField(null=True, blank=True)
+    
+class MachineAtteandance(models.Model):
+    machineName = models.TextField()
+    machineNumber = models.TextField()
+    Remark = models.TextField()
