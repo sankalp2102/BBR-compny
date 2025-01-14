@@ -29,7 +29,37 @@ class TaskCompleteReport(models.Model):
     remark = models.TextField()
     completed_at = models.DateTimeField(null=True, blank=True)
     
-class MachineAtteandance(models.Model):
-    machineName = models.TextField()
-    machineNumber = models.TextField()
-    Remark = models.TextField()
+class PlantOnSite(models.Model):
+    Name = models.TextField()
+    
+    def __str__(self):
+        return self.Name
+    
+class PersonOnSite(models.Model):
+    Name = models.TextField()
+    
+    def __str__(self):
+        return self.Name
+    
+class PersonAttendaceRecord(models.Model):
+    person = models.ForeignKey(
+        PersonOnSite, 
+        on_delete=models.CASCADE, 
+        related_name='PersonName'  # Unique related_name
+    )
+    date = models.DateField(auto_now_add=True)
+    Number = models.IntegerField()
+    def __str__(self):
+        return f"{self.person.Name} - {self.date}"
+
+
+class PlantAttendance(models.Model):
+    machine = models.ForeignKey(
+        PlantOnSite, 
+        on_delete=models.CASCADE, 
+        related_name='MachineryName'  # Unique related_name
+    )
+    date = models.DateField(auto_now_add=True)
+    Number = models.IntegerField()
+    def __str__(self):
+        return f"{self.machine.Name} - {self.date}"

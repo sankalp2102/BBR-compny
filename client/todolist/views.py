@@ -8,8 +8,8 @@ from reportlab.lib.pagesizes import letter
 from django.http import HttpResponse
 from django.utils import timezone
 import io
-from .models import Task, Site
-from .serializers import TaskSerializer, TaskCompleteReportSerializer, TaskIncompleteReportSerializer
+from .models import Task, Site, PersonOnSite, PlantOnSite
+from .serializers import TaskSerializer, TaskCompleteReportSerializer, TaskIncompleteReportSerializer, PersonOnSiteSerializer, PlantOnSiteSerializer, PersonOnSiteNameSerializer, PlantOnSiteNameSerializer
 
 
 class ImportTasksView(APIView):
@@ -44,11 +44,17 @@ class ImportTasksView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
             
-class TaskListView(APIView):
+            
+            
+            
+class TaskListView(APIView): #get all the Task from backend
     def get(self, request, site_id):
         tasks = Task.objects.filter(site_id=site_id)
         serializer = TaskSerializer(tasks, many=True)
         return Response(serializer.data)
+    
+    
+    
     
 class TaskCompleteView(APIView):
     def post(self, request, task_id):
@@ -58,48 +64,60 @@ class TaskCompleteView(APIView):
         serializers.save()
         return Response({'status': 200, 'message': 'Data Recieve'})
     
-class TaskIncompleteView(APIView):
+    
+    
+    
+    
+    
+    
+class TaskIncompleteView(APIView): #Incompleted task send to backend
     def post(self, request, task_id):
         serializers = TaskIncompleteReportSerializer(data = request.data)
         if not serializers.is_valid():
             return Response({'status': 403, 'message': 'Something went wrong'})
         serializers.save()
         return Response({'status': 200, 'message': 'Data Recieve'})
+        
+        
+        
+
+        
+        
+class PersonAttendanceView(APIView): #Send number of people prenset on site
+    def post(self, request, site_id):
+        serializers = PersonOnSiteSerializer(data = request.data)
+        if not serializers.is_valid():
+            return Response({'status': 403, 'message': 'Something went wrong'})
+        serializers.save()
+        return Response({'status': 200, 'message': 'Data Recieve'})
+    
+class PersonNameView(APIView): #Get Name of persons on site
+    def get(self, request, site_id):
+        persons = PersonOnSite.objects.all()
+        serializer = PersonOnSiteSerializer(persons, many=True)
+        return Response(serializer.data)
     
 
-# class TaskUpdateView(APIView):
-#     def post(self, request, task_id):
-#         task = get_object_or_404(Task, id=task_id)
-#         action = request.data.get('action')
-        
-#         if action == 'complete':
-#             task.mark_complete()
-#             return Response({'message': 'Task marked as complete'})
-        
-#         elif action == 'incomplete':
-#             reason = request.data.get('reason')
-#             photo = request.FILES.get('photo')
-            
-#             if not reason or not photo:
-#                 return Response(
-#                     {'error': 'Both reason and photo are required'},
-#                     status=status.HTTP_400_BAD_REQUEST
-#                 )
-            
-#             task.mark_incomplete()
-#             TaskIncompleteReport.objects.create(
-#                 task=task,
-#                 reason=reason,
-#                 photo=photo
-#             )
-            
-#             return Response({'message': 'Task marked as incomplete with report'})
-        
-#         return Response(
-#             {'error': 'Invalid action'},
-#             status=status.HTTP_400_BAD_REQUEST
-#         )
-        
+
+
+    
+class PlantAttendanceRecord(APIView): #Send number of Machine prenset on site
+    def post(self, request, site_id):
+        serializers = PlantOnSiteSerializer(data = request.data)
+        if not serializers.is_valid():
+            return Response({'status': 403, 'message': 'Something went wrong'})
+        serializers.save()
+        return Response({'status': 200, 'message': 'Data Recieve'})
+
+class PlantNameView(APIView): #Get Name of persons on site
+    def get(self, request, site_id):
+        persons = PlantOnSite.objects.all()
+        serializer = PlantOnSiteSerializer(persons, many=True)
+        return Response(serializer.data)
+    
+
+
+
 class DailyReportPDFView(APIView):
     def get(self, request, site_id):
         site = get_object_or_404(Site, id=site_id)

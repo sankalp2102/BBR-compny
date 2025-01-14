@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Task, TaskIncompleteReport, Site, TaskCompleteReport, MachineAtteandance
+from .models import Task, TaskIncompleteReport, Site, TaskCompleteReport, PersonAttendaceRecord, PlantAttendance, PersonOnSite, PlantOnSite
 
 class TaskSerializer(serializers.ModelSerializer):
     class Meta:
@@ -23,7 +23,24 @@ class TaskCompleteReportSerializer(serializers.ModelSerializer):
         model = TaskCompleteReport
         fields = '__all__'
         
-class MachineAttendanceSerializer(serializers.ModelSerializer):
+        
+class PersonOnSiteNameSerializer(serializers.ModelSerializer):
     class Meta:
-        model = MachineAtteandance
+        model = PersonOnSite
+        fields = '__all__'
+        
+class PlantOnSiteNameSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PlantOnSite
+        fields = '__all__'
+    
+        
+class PersonOnSiteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PersonAttendaceRecord
+        fields = '__all__'
+    
+class PlantOnSiteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PlantAttendance
         fields = '__all__'
