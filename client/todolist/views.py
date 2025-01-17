@@ -1,14 +1,8 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from django.shortcuts import get_object_or_404
 import pandas as pd
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
-from django.http import HttpResponse
-from django.utils import timezone
-import io
-from .models import Task, Site, PersonOnSite, PlantOnSite
+from .models import Task, PersonOnSite, PlantOnSite, TaskCompleteReport, TaskIncompleteReport
 from .serializers import TaskSerializer, TaskCompleteReportSerializer, TaskIncompleteReportSerializer, PersonOnSiteSerializer, PlantOnSiteSerializer, PersonOnSiteNameSerializer, PlantOnSiteNameSerializer
 
 
@@ -16,21 +10,19 @@ class ImportTasksView(APIView):
     def post(self, request):
         try:
             excel_file = request.FILES.get('excel_file')
-            site_id = request.data.get('site_id')
             
-            if not excel_file or not site_id:
+            if not excel_file :
                 return Response(
-                    {'error': 'Both excel_file and site_id are required'},
+                    {'error': 'Excel_file required'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            site = get_object_or_404(Site, id=site_id)
             df = pd.read_excel(excel_file)
             
             tasks = []
             for _, row in df.iterrows():
                 task = Task(
-                    site=site,
+                
                     description=row['task_description']  # Adjust column name as per your Excel sheet
                 )
                 tasks.append(task)
@@ -48,8 +40,8 @@ class ImportTasksView(APIView):
             
             
 class TaskListView(APIView): #get all the Task from backend
-    def get(self, request, site_id):
-        tasks = Task.objects.filter(site_id=site_id)
+    def get(self, request):
+        tasks = Task.objects.all()
         serializer = TaskSerializer(tasks, many=True)
         return Response(serializer.data)
     
@@ -57,12 +49,17 @@ class TaskListView(APIView): #get all the Task from backend
     
     
 class TaskCompleteView(APIView):
-    def post(self, request, task_id):
+    def post(self, request):
         serializers = TaskCompleteReportSerializer(data = request.data)
         if not serializers.is_valid():
             return Response({'status': 403, 'message': 'Something went wrong'})
         serializers.save()
         return Response({'status': 200, 'message': 'Data Recieve'})
+    
+    def get(self, request):
+        tasks = TaskCompleteReport.objects.all()
+        serializers = TaskCompleteReportSerializer(tasks, many=True)
+        return Response(serializers.data)
     
     
     
@@ -71,20 +68,23 @@ class TaskCompleteView(APIView):
     
     
 class TaskIncompleteView(APIView): #Incompleted task send to backend
-    def post(self, request, task_id):
+    def post(self, request):
         serializers = TaskIncompleteReportSerializer(data = request.data)
         if not serializers.is_valid():
             return Response({'status': 403, 'message': 'Something went wrong'})
         serializers.save()
         return Response({'status': 200, 'message': 'Data Recieve'})
         
-        
-        
+    def get(self, request):
+        tasks = TaskIncompleteReport.objects.all()
+        serializers = TaskIncompleteReportSerializer(tasks, many=True)
+        return Response(serializers.data)    
+    
 
         
         
 class PersonAttendanceView(APIView): #Send number of people prenset on site
-    def post(self, request, site_id):
+    def post(self, request):
         serializers = PersonOnSiteSerializer(data = request.data)
         if not serializers.is_valid():
             return Response({'status': 403, 'message': 'Something went wrong'})
@@ -92,17 +92,17 @@ class PersonAttendanceView(APIView): #Send number of people prenset on site
         return Response({'status': 200, 'message': 'Data Recieve'})
     
 class PersonNameView(APIView): #Get Name of persons on site
-    def get(self, request, site_id):
+    def get(self, request):
         persons = PersonOnSite.objects.all()
-        serializer = PersonOnSiteSerializer(persons, many=True)
+        serializer = PersonOnSiteNameSerializer(persons, many=True)
         return Response(serializer.data)
     
 
 
 
     
-class PlantAttendanceRecord(APIView): #Send number of Machine prenset on site
-    def post(self, request, site_id):
+class PlantAttendanceView(APIView): #Send number of Machine prenset on site
+    def post(self, request):
         serializers = PlantOnSiteSerializer(data = request.data)
         if not serializers.is_valid():
             return Response({'status': 403, 'message': 'Something went wrong'})
@@ -110,51 +110,8 @@ class PlantAttendanceRecord(APIView): #Send number of Machine prenset on site
         return Response({'status': 200, 'message': 'Data Recieve'})
 
 class PlantNameView(APIView): #Get Name of persons on site
-    def get(self, request, site_id):
+    def get(self, request):
         persons = PlantOnSite.objects.all()
-        serializer = PlantOnSiteSerializer(persons, many=True)
+        serializer = PlantOnSiteNameSerializer(persons, many=True)
         return Response(serializer.data)
     
-
-
-
-class DailyReportPDFView(APIView):
-    def get(self, request, site_id):
-        site = get_object_or_404(Site, id=site_id)
-        today = timezone.now().date()
-        tasks = Task.objects.filter(
-            site=site,
-            created_at__date=today
-        )
-        
-        # Create PDF
-        buffer = io.BytesIO()
-        p = canvas.Canvas(buffer, pagesize=letter)
-        
-        # Add content to PDF
-        p.drawString(100, 750, f"Daily Report - {site.name}")
-        p.drawString(100, 700, f"Date: {today}")
-        
-        y_position = 650
-        for task in tasks:
-            p.drawString(120, y_position, f"Task: {task.description}")
-            p.drawString(120, y_position-20, f"Status: {task.status}")
-            
-            if task.status == 'incomplete':
-                report = task.incomplete_reports.first()
-                if report:
-                    p.drawString(140, y_position-40, f"Reason: {report.reason}")
-            
-            y_position -= 100
-        
-        p.showPage()
-        p.save()
-        buffer.seek(0)
-        
-        # Create response
-        response = HttpResponse(content_type='application/pdf')
-        response['Content-Disposition'] = f'attachment; filename=daily_report_{today}.pdf'
-        response.write(buffer.getvalue())
-        buffer.close()
-        
-        return response
