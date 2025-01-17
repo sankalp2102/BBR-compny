@@ -26,7 +26,7 @@ SECRET_KEY = 'django-insecure-54n%*!m$m_09pcg!z%4_l8shgut)z)=yy8cp7rr)=etetn909r
 DEBUG = True
 
 ALLOWED_HOSTS = [
-    'bbr-compny.onrender.com'
+    'https://bbr-compny.onrender.com',
     'http://127.0.0.1:8000/'
 ]
 
