@@ -12,7 +12,7 @@ class TaskIncompleteReport(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 class TaskCompleteReport(models.Model):
-    description = models.TextField(default='')
+    description = models.TextField()
     remark = models.TextField()
     completed_at = models.DateTimeField(auto_now_add=True)
     
