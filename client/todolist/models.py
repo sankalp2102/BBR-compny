@@ -8,7 +8,7 @@ class Task(models.Model):
 class TaskIncompleteReport(models.Model):
     description = models.TextField(default='')
     reason = models.TextField()
-    photo = models.ImageField(upload_to='task_photos/')
+    photo = models.ImageField(upload_to='images/')
     created_at = models.DateTimeField(auto_now_add=True)
 
 class TaskCompleteReport(models.Model):
