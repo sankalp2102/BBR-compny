@@ -9,7 +9,7 @@ class Task(models.Model):
 class TaskIncompleteReport(models.Model):
     description = models.TextField(unique=True)
     reason = models.TextField()
-    photo = models.URLField(max_length=100000)
+    photo = models.ImageField(upload_to="uploads")
     created_at = models.DateTimeField(auto_now_add=True)
     def __str__(self):
         return self.description
