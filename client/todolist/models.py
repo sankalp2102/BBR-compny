@@ -28,7 +28,6 @@ class PlantOnSite(models.Model):
     
 class PersonOnSite(models.Model):
     Name = models.TextField()
-    
     def __str__(self):
         return self.Name
     
