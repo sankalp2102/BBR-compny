@@ -13,6 +13,3 @@ urlpatterns = [
     path('post-people/', PersonAttendanceView.as_view(), name='Post_people'),#working
     path('post-plant/', PlantAttendanceView.as_view(), name='No_of_plant'),#working
 ]
-
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
