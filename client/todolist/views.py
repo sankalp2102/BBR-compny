@@ -4,7 +4,7 @@ from rest_framework import status
 import pandas as pd
 from .models import Task, PersonOnSite, PlantOnSite, TaskCompleteReport, TaskIncompleteReport
 from .serializers import TaskSerializer, TaskCompleteReportSerializer, TaskIncompleteReportSerializer, PersonOnSiteSerializer, PlantOnSiteSerializer, PersonOnSiteNameSerializer, PlantOnSiteNameSerializer
-
+from rest_framework.parsers import MultiPartParser, FormParser
 
 class ImportTasksView(APIView):
     def post(self, request):
@@ -68,6 +68,7 @@ class TaskCompleteView(APIView):
     
     
 class TaskIncompleteView(APIView): #Incompleted task send to backend
+    parser_classes = (MultiPartParser, FormParser)
     def post(self, request):
         serializers = TaskIncompleteReportSerializer(data = request.data)
         if not serializers.is_valid():
