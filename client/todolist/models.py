@@ -23,7 +23,6 @@ class TaskCompleteReport(models.Model):
     
 class PlantOnSite(models.Model):
     Name = models.TextField()
-    
     def __str__(self):
         return self.Name
     
