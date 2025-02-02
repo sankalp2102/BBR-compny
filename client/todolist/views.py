@@ -1,118 +1,341 @@
+from collections import defaultdict
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
 import pandas as pd
-from .models import Task, PersonOnSite, PlantOnSite, TaskCompleteReport, TaskIncompleteReport
-from .serializers import TaskSerializer, TaskCompleteReportSerializer, TaskIncompleteReportSerializer, PersonOnSiteSerializer, PlantOnSiteSerializer, PersonOnSiteNameSerializer, PlantOnSiteNameSerializer
+from .models import (
+    State, Site, TaskIncompleteReport, TaskCompleteReport, ShiftData
+)
+from .serializers import (
+    StateSerializer, SiteSerializer, TaskIncompleteReportSerializer, 
+    TaskCompleteReportSerializer, 
+    PersonOnSiteSerializer, PlantOnSiteSerializer
+)
 from rest_framework.parsers import MultiPartParser, FormParser
+from datetime import datetime, timedelta
+from datetime import date
+from django.core.cache import cache
+from .utils import get_current_shift, process_list_field
 
-class ImportTasksView(APIView):
+
+      
+def get_cache_key(site_id, suffix):
+    current_date = date.today()
+    current_shift = get_current_shift()
+    return f'site_{site_id}:{current_date}:{current_shift}:{suffix}'
+
+# State/Site Navigation APIs
+class StateList(APIView):
+    def get(self, request):
+        states = State.objects.all()
+        serializer = StateSerializer(states, many=True)
+        return Response(serializer.data)
+
+class SiteList(APIView):
+    def get(self, request, state_id):
+        sites = Site.objects.filter(state_id=state_id)
+        serializer = SiteSerializer(sites, many=True)
+        return Response(serializer.data)
+
+
+# views.py (Updated Import Logic)
+
+class ImportExcelView(APIView):
     def post(self, request):
         try:
-            excel_file = request.FILES.get('excel_file')
+            df = pd.read_excel(request.FILES['file'])
             
-            if not excel_file :
-                return Response(
-                    {'error': 'Excel_file required'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            df['date'] = pd.to_datetime(df['date'], format='%m/%d/%Y', errors='coerce')
             
-            df = pd.read_excel(excel_file)
+            # Drop rows with invalid dates
+            df = df[df['date'].notna()]
             
-            tasks = []
+            required_columns = ['state', 'site', 'description', 
+                               'shift', 'date', 'machines', 'people']
+            
+            # Validate Excel columns
+            missing = set(required_columns) - set(df.columns)
+            if missing:
+                return Response({"error": f"Missing columns: {missing}"}, status=400)
+
+            cache_updates = defaultdict(lambda: {
+                'descriptions': [],
+                'machines': set(),
+                'people': set(),
+                'site_id': None,
+                'date': None,
+                'shift': None
+            })
+
+            state_cache = {}
+            site_cache = {}
+            shift_data_objects = []
+
             for _, row in df.iterrows():
-                task = Task(
+                try:
+                    # Process state
+                    state_name = str(row['state']).strip()
+                    if not state_name:
+                        continue
+                        
+                    if state_name not in state_cache:
+                        state, _ = State.objects.get_or_create(name=state_name)
+                        state_cache[state_name] = state
+                    state = state_cache[state_name]
+
+                    # Process site
+                    site_name = str(row['site']).strip()
+                    if not site_name:
+                        continue
+                        
+                    site_key = (state.id, site_name)
+                    if site_key not in site_cache:
+                        site, _ = Site.objects.get_or_create(
+                            name=site_name,
+                            state=state
+                        )
+                        site_cache[site_key] = site
+                    site = site_cache[site_key]
+
+                    # Process description
+                    description = str(row['description']).strip()
+                    if not description:
+                        continue
+
+                    # Process machines and people
+                    machines = process_list_field(str(row['machines']))
+                    people = process_list_field(str(row['people']))
+
+                    # Create ShiftData object
+                    shift_data_objects.append(ShiftData(
+                        site=site,
+                        description=description,
+                        shift=int(row['shift']),
+                        date=row['date'].date(),
+                        machines=",".join(machines),
+                        people=",".join(people)
+                    ))
+
+                    # Prepare cache updates
+                    cache_key = (site.id, str(row['date'].date()), int(row['shift']))
+                    cache_entry = cache_updates[cache_key]
+                    cache_entry['descriptions'].append(description)
+                    cache_entry['machines'].update(machines)
+                    cache_entry['people'].update(people)
+                    cache_entry['site_id'] = site.id
+                    cache_entry['date'] = str(row['date'].date())
+                    cache_entry['shift'] = int(row['shift'])
+
+                except Exception as e:
+                    print(f"Error processing row {_}: {str(e)}")
+                    continue
+
+            # Bulk create and update caches
+            if shift_data_objects:
+                ShiftData.objects.bulk_create(shift_data_objects)
                 
-                    description=row['task_description']  # Adjust column name as per your Excel sheet
+                for key in cache_updates:
+                    data = cache_updates[key]
+                    base_key = f"site_{data['site_id']}:{data['date']}:{data['shift']}"
+                    
+                    # Update descriptions
+                    desc_key = f"{base_key}:descriptions"
+                    existing_desc = cache.get(desc_key, [])
+                    cache.set(desc_key, existing_desc + data['descriptions'], 30*24*60*60)
+                    
+                    # Update machines
+                    machine_key = f"{base_key}:machines"
+                    existing_machines = set(cache.get(machine_key, []))
+                    existing_machines.update(data['machines'])
+                    cache.set(machine_key, sorted(existing_machines), 30*24*60*60)
+                    
+                    # Update people
+                    people_key = f"{base_key}:people"
+                    existing_people = set(cache.get(people_key, []))
+                    existing_people.update(data['people'])
+                    cache.set(people_key, sorted(existing_people), 30*24*60*60)
+
+            return Response({
+                "message": f"Processed {len(shift_data_objects)} valid records",
+                "states": len(state_cache),
+                "sites": len(site_cache)
+            }, status=201)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
+
+
+# Site-specific Data APIs
+class SiteShiftDataView(APIView):
+    def get(self, request, site_id):
+        current_date = date.today()
+        current_shift = get_current_shift()
+        cache_key = f"site_{site_id}:{current_date}:{current_shift}:descriptions"
+        return Response({
+            "site_id": site_id,
+            "date": current_date,
+            "shift": current_shift,
+            "descriptions": cache.get(cache_key, [])
+        })
+
+class SiteMachinesView(APIView):
+    def get(self, request, site_id):
+        current_date = date.today()
+        current_shift = get_current_shift()
+        cache_key = f"site_{site_id}:{current_date}:{current_shift}:machines"
+        return Response({
+            "site_id": site_id,
+            "date": current_date,
+            "shift": current_shift,
+            "machines": cache.get(cache_key, [])
+        })
+
+class SitePeopleView(APIView):
+    def get(self, request, site_id):
+        current_date = date.today()
+        current_shift = get_current_shift()
+        cache_key = f"site_{site_id}:{current_date}:{current_shift}:people"
+        return Response({
+            "site_id": site_id,
+            "date": current_date,
+            "shift": current_shift,
+            "people": cache.get(cache_key, [])
+        })
+
+
+
+class TaskCompleteView(APIView):
+    def get(self, request, site_id):
+    # Retrieve all completed tasks for a specific site within a time range
+        try:
+        # Get the time constraint in hours from query parameters (default is 24 hours)
+            hours = int(request.query_params.get('hours', 24))
+            time_threshold = datetime.now() - timedelta(hours=hours)
+        
+        # Filter tasks based on site_id and created_at time constraint
+            tasks = TaskCompleteReport.objects.filter(
+                description__site_id=site_id, created_at__gte=time_threshold
+            )
+        
+            if not tasks.exists():
+                return Response(
+                    {"status": 404, "message": "No completed tasks found for this site within the specified time range."},
+                    status=404,
                 )
-                tasks.append(task)
-            
-            Task.objects.bulk_create(tasks)
-            
-            return Response({'message': 'Tasks imported successfully'})
+        
+            serializers = TaskCompleteReportSerializer(tasks, many=True)
+            return Response(serializers.data)
+        except ValueError:
+            return Response(
+                {"status": 400, "message": "Invalid 'hours' parameter. Please provide a valid integer."},
+                status=400,
+            )
         except Exception as e:
             return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
+                {"status": 500, "message": "An error occurred.", "error": str(e)},
+                status=500,
             )
-            
-            
-            
-            
-class TaskListView(APIView): #get all the Task from backend
-    def get(self, request):
-        tasks = Task.objects.all()
-        serializer = TaskSerializer(tasks, many=True)
-        return Response(serializer.data)
-    
-    
-    
-    
-class TaskCompleteView(APIView):
-    def post(self, request):
-        serializers = TaskCompleteReportSerializer(data = request.data)
+
+    def post(self, request, site_id):
+        data = request.data
+        data["site_id"] = site_id  # Explicitly associate task with site ID
+
+        serializers = TaskCompleteReportSerializer(data=data)
         if not serializers.is_valid():
-            return Response({'status': 403, 'message': 'Something went wrong'})
+            return Response(
+                {"status": 400, "message": "Invalid data", "errors": serializers.errors},
+                status=400,
+            )
         serializers.save()
-        return Response({'status': 200, 'message': 'Data Recieve'})
-    
-    def get(self, request):
-        tasks = TaskCompleteReport.objects.all()
-        serializers = TaskCompleteReportSerializer(tasks, many=True)
-        return Response(serializers.data)
-    
-    
-    
-    
-    
-    
-    
-class TaskIncompleteView(APIView): #Incompleted task send to backend
+        return Response(
+            {"status": 200, "message": "Completed task recorded successfully."},
+            status=200,
+        )
+
+
+class TaskIncompleteView(APIView):
     parser_classes = (MultiPartParser, FormParser)
-    def post(self, request):
-        serializers = TaskIncompleteReportSerializer(data = request.data)
-        if not serializers.is_valid():
-            return Response({'status': 403, 'message': 'Something went wrong'})
-        serializers.save()
-        return Response({'status': 200, 'message': 'Data Recieve'})
+    
+    
+    def get(self, request, site_id):
+    # Retrieve all incomplete tasks for a specific site within a time range
+        try:
+        # Get the time constraint in hours from query parameters (default is 24 hours)
+            hours = int(request.query_params.get('hours', 24))
+            time_threshold = datetime.now() - timedelta(hours=hours)
         
-    def get(self, request):
-        tasks = TaskIncompleteReport.objects.all()
-        serializers = TaskIncompleteReportSerializer(tasks, many=True)
-        return Response(serializers.data)    
-    
-
+        # Filter tasks based on site_id and created_at time constraint
+            tasks = TaskIncompleteReport.objects.filter(
+                description__site_id=site_id, created_at__gte=time_threshold
+            )
         
+            if not tasks.exists():
+                return Response(
+                    {"status": 404, "message": "No incomplete tasks found for this site within the specified time range."},
+                    status=404,
+                )
         
-class PersonAttendanceView(APIView): #Send number of people prenset on site
-    def post(self, request):
-        serializers = PersonOnSiteSerializer(data = request.data)
+            serializers = TaskIncompleteReportSerializer(tasks, many=True)
+            return Response(serializers.data)
+        except ValueError:
+            return Response(
+                {"status": 400, "message": "Invalid 'hours' parameter. Please provide a valid integer."},
+                status=400,
+            )
+        except Exception as e:
+            return Response(
+                {"status": 500, "message": "An error occurred.", "error": str(e)},
+                status=500,
+            )
+
+    def post(self, request, site_id):
+        data = request.data
+        data["site_id"] = site_id  # Explicitly associate task with site ID
+
+        serializers = TaskIncompleteReportSerializer(data=data)
         if not serializers.is_valid():
-            return Response({'status': 403, 'message': 'Something went wrong'})
+            return Response(
+                {"status": 400, "message": "Invalid data", "errors": serializers.errors},
+                status=400,
+            )
         serializers.save()
-        return Response({'status': 200, 'message': 'Data Recieve'})
-    
-class PersonNameView(APIView): #Get Name of persons on site
-    def get(self, request):
-        persons = PersonOnSite.objects.all()
-        serializer = PersonOnSiteNameSerializer(persons, many=True)
-        return Response(serializer.data)
-    
+        return Response(
+            {"status": 200, "message": "Incomplete task recorded successfully."},
+            status=200,
+        )
 
+   
+        
+class PersonAttendanceView(APIView): #Send number of people prenset on site by site id 
+    def post(self, request, site_id):
+        data = request.data
+        data["site_id"] = site_id  # Explicitly associate task with site ID
 
-
-    
-class PlantAttendanceView(APIView): #Send number of Machine prenset on site
-    def post(self, request):
-        serializers = PlantOnSiteSerializer(data = request.data)
+        serializers = PersonOnSiteSerializer(data=data)
         if not serializers.is_valid():
-            return Response({'status': 403, 'message': 'Something went wrong'})
+            return Response(
+                {"status": 400, "message": "Invalid data", "errors": serializers.errors},
+                status=400,
+            )
         serializers.save()
-        return Response({'status': 200, 'message': 'Data Recieve'})
+        return Response(
+            {"status": 200, "message": "Completed task recorded successfully."},
+            status=200,
+        )
 
-class PlantNameView(APIView): #Get Name of persons on site
-    def get(self, request):
-        persons = PlantOnSite.objects.all()
-        serializer = PlantOnSiteNameSerializer(persons, many=True)
-        return Response(serializer.data)
     
+class PlantAttendanceView(APIView): #Send number of Machine prenset on site by site id
+    def post(self, request, site_id):
+        data = request.data
+        data["site_id"] = site_id  # Explicitly associate task with site ID
+
+        serializers = PlantOnSiteSerializer(data=data)
+        if not serializers.is_valid():
+            return Response(
+                {"status": 400, "message": "Invalid data", "errors": serializers.errors},
+                status=400,
+            )
+        serializers.save()
+        return Response(
+            {"status": 200, "message": "Completed task recorded successfully."},
+            status=200,
+        )
