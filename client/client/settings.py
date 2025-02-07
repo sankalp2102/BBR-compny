@@ -14,6 +14,8 @@ from pathlib import Path
 from decouple import config
 import dj_database_url
 import os
+from dotenv import load_dotenv
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -23,13 +25,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-54n%!m$m_09pcg!z%4_l8shgut)z)=yy8cp7rr)=etetn909r'
+SECRET_KEY = os.environ["SECRET_KEY"]
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
 ALLOWED_HOSTS = [
-    '*'
+    os.environ.get('BaseUrl'),
+    os.environ.get('Localhost'),
+    os.environ.get('localhost'),
 ]
 
 
@@ -59,8 +63,10 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 CSRF_TRUSTED_ORIGINS = [
-    'http://127.0.0.1:8000',  # Add your frontend's domain
+    os.environ.get('Localhost_CORS'),
+    os.environ.get('BaseUrl_CORS')  
 ]
+
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_ALL_ORIGINS = True
 ROOT_URLCONF = 'client.urls'
