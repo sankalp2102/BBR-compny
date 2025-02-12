@@ -63,7 +63,8 @@ MIDDLEWARE = [
 ]
 CSRF_TRUSTED_ORIGINS = [
     os.environ.get('Localhost_CORS'),
-    os.environ.get('BaseUrl_CORS')  
+    os.environ.get('BaseUrl_CORS'),
+    os.environ.get('localhost_CORS'),
 ]
 
 CORS_ALLOW_CREDENTIALS = True
