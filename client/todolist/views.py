@@ -316,17 +316,27 @@ class HeadcountView(APIView):
                 shift=shift
             )
             
-            # Aggregate counts by person
+            structured_headcounts = []
             result = {}
+        
+            # First aggregate the counts
             for h in headcounts:
                 result[h.person_name] = result.get(h.person_name, 0) + h.count
+        
+            # Convert to structured format
+            for person_name, count in result.items():
+                structured_headcounts.append({ 
+                    "name": person_name,
+                    "count": count,
+                })
             
             return Response({
                 "site_id": site_id,
+                "site_name": site.name,  # Assuming site has a name field
                 "date": req_date,
                 "shift": shift,
-                "headcounts": result
+                "headcounts": structured_headcounts
             })
-            
+        
         except Site.DoesNotExist:
             return Response({"error": "Site not found"}, status=404)
