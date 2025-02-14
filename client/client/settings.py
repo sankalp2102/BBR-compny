@@ -15,6 +15,9 @@ from decouple import config
 import dj_database_url
 import os
 
+# from dotenv import load_dotenv
+
+# load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -142,7 +145,8 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-REST_FRAMEWORK = {
+
+REST_FRAMEWORK = { 
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10
 }
@@ -165,3 +169,44 @@ CACHES = {
 
 # Cache TTL: 30 days (in seconds)
 CACHE_TTL = 30 * 24 * 60 * 60
+
+# ACCOUNT_EMAIL_VERIFICATION = 'none'  # Set to 'none' for development
+# ACCOUNT_AUTHENTICATION_METHOD = 'email'
+# ACCOUNT_EMAIL_REQUIRED = True
+# ACCOUNT_UNIQUE_EMAIL = True
+# ACCOUNT_USERNAME_REQUIRED = False
+# ACCOUNT_USER_MODEL_USERNAME_FIELD = None
+
+# EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'  # This will output emails to console
+# EMAIL_HOST = 'localhost'
+# EMAIL_PORT = 25
+# EMAIL_HOST_USER = ''
+# EMAIL_HOST_PASSWORD = ''
+# EMAIL_USE_TLS = False
+
+
+# SOCIALACCOUNT_PROVIDERS = {
+#     'google': {
+#         'APP': {
+#             'client_id': 'your-client-id',
+#             'secret': 'your-secret-key',
+#             'key': ''
+#         },
+#         'SCOPE': [
+#             'profile',
+#             'email',
+#         ],
+#         'AUTH_PARAMS': {
+#             'access_type': 'online',
+#         }
+#     }
+# }
+
+
+# REST_AUTH = {
+#     'USE_JWT': True,
+#     'JWT_AUTH_COOKIE': 'auth',
+#     'JWT_AUTH_REFRESH_COOKIE': 'refresh',
+#     'USER_DETAILS_SERIALIZER': 'dj_rest_auth.serializers.UserDetailsSerializer',
+# }
+

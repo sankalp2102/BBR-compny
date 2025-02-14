@@ -7,10 +7,15 @@ from rest_framework.response import Response
 import pandas as pd
 from .models import (State, Site, ShiftData, TaskStatus, IncompleteTaskEvidence, Headcount)
 from .serializers import (
-    StateSerializer,SiteSerializer, TaskCreateSerializer,HeadcountCreateSerializer
+    StateSerializer,SiteSerializer, TaskCreateSerializer,HeadcountCreateSerializer, UserSerializer,
+    TaskStatusResponseSerializer
 )
 from .utils import get_current_shift, process_list_field
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+
+from rest_framework import viewsets
+from rest_framework.permissions import IsAuthenticated
+from django.contrib.auth.models import User
 
 # Helper Functions
 def get_cache_key(site_id, suffix):
@@ -195,13 +200,96 @@ class SitePeopleView(APIView):
         })
         
         
+# class TaskStatusView(APIView):
+#     parser_classes = (MultiPartParser, FormParser, JSONParser)
+#     def post(self, request):
+#         serializer = TaskCreateSerializer(data=request.data)
+#         if not serializer.is_valid():
+#             return Response(serializer.errors, status=400)
+        
+#         try:
+#             shift_data = ShiftData.objects.get(id=serializer.validated_data['shift_data_id'])
+#         except ShiftData.DoesNotExist:
+#             return Response({"error": "Shift data not found"}, status=404)
+
+#         # Create task status
+#         task_status = TaskStatus.objects.create(
+#             shift_data=shift_data,
+#             description=serializer.validated_data['description'],
+#             status=serializer.validated_data['status']
+#         )
+
+#         # Handle incomplete task evidence
+#         if serializer.validated_data['status'] == 'incomplete':
+#             required_fields = ['image', 'latitude', 'longitude']
+#             missing_fields = [f for f in required_fields if f not in serializer.validated_data]
+#             if missing_fields:
+#                 return Response({
+#                     "error": f"Missing fields for incomplete task: {', '.join(missing_fields)}"
+#             }, status=400)
+#             IncompleteTaskEvidence.objects.create(
+#                 task_status=task_status,
+#                 image=serializer.validated_data['image'],
+#                 latitude=serializer.validated_data['latitude'],
+#                 longitude=serializer.validated_data['longitude'],
+#                 notes=serializer.validated_data.get('notes', '')
+#             )
+
+#         return Response({"message": "Task status recorded"}, status=201)
+
+# class EnhancedShiftDataView(APIView):
+#     def get(self, request, site_id):
+#         current_date = date.today()
+#         current_shift = get_current_shift()
+        
+#         # Get original shift data
+#         cache_key = f"site_{site_id}:{current_date}:{current_shift}:descriptions"
+#         descriptions = cache.get(cache_key, [])
+        
+#         # Get task statuses
+#         task_statuses = TaskStatus.objects.filter(
+#             shift_data__site_id=site_id,
+#             shift_data__date=current_date,
+#             shift_data__shift=current_shift
+#         ).select_related('incompletetaskevidence')
+        
+#         # Serialize data
+#         status_data = []
+#         for status in task_statuses:
+#             entry = {
+#                 'description': status.description,
+#                 'status': status.status,
+#                 'timestamp': status.created_at
+#             }
+#             if status.status == 'incomplete':
+#                 evidence = status.incompletetaskevidence
+#                 entry.update({
+#                     'image_url': request.build_absolute_uri(evidence.image.url),
+#                     'coordinates': {
+#                         'lat': float(evidence.latitude),
+#                         'lng': float(evidence.longitude)
+#                     },
+#                     'notes': evidence.notes
+#                 })
+#             status_data.append(entry)
+        
+#         return Response({
+#             "descriptions": descriptions,
+#             "task_statuses": status_data
+#         })
+        
+        
 class TaskStatusView(APIView):
     parser_classes = (MultiPartParser, FormParser, JSONParser)
+
     def post(self, request):
+        """
+        Create a new task status with optional evidence for incomplete tasks.
+        """
         serializer = TaskCreateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
-        
+
         try:
             shift_data = ShiftData.objects.get(id=serializer.validated_data['shift_data_id'])
         except ShiftData.DoesNotExist:
@@ -219,9 +307,11 @@ class TaskStatusView(APIView):
             required_fields = ['image', 'latitude', 'longitude']
             missing_fields = [f for f in required_fields if f not in serializer.validated_data]
             if missing_fields:
+                task_status.delete()  # Clean up if validation fails
                 return Response({
                     "error": f"Missing fields for incomplete task: {', '.join(missing_fields)}"
-            }, status=400)
+                }, status=400)
+
             IncompleteTaskEvidence.objects.create(
                 task_status=task_status,
                 image=serializer.validated_data['image'],
@@ -230,49 +320,38 @@ class TaskStatusView(APIView):
                 notes=serializer.validated_data.get('notes', '')
             )
 
-        return Response({"message": "Task status recorded"}, status=201)
+        # Return the created task status with complete data
+        response_serializer = TaskStatusResponseSerializer(task_status)
+        return Response(response_serializer.data, status=201)
 
 class EnhancedShiftDataView(APIView):
     def get(self, request, site_id):
+        """
+        Get enhanced shift data including task statuses and descriptions.
+        """
         current_date = date.today()
         current_shift = get_current_shift()
-        
-        # Get original shift data
+
+        # Get original shift data from cache
         cache_key = f"site_{site_id}:{current_date}:{current_shift}:descriptions"
         descriptions = cache.get(cache_key, [])
-        
-        # Get task statuses
+
+        # Fetch all task statuses related to the site, avoiding filtering by date/shift
         task_statuses = TaskStatus.objects.filter(
-            shift_data__site_id=site_id,
-            shift_data__date=current_date,
-            shift_data__shift=current_shift
-        ).select_related('incompletetaskevidence')
+            shift_data__site_id=site_id
+        ).select_related('shift_data', 'incompletetaskevidence')
+
+        # Use serializer for consistent data format
+        status_serializer = TaskStatusResponseSerializer(task_statuses, many=True)
         
-        # Serialize data
-        status_data = []
-        for status in task_statuses:
-            entry = {
-                'description': status.description,
-                'status': status.status,
-                'timestamp': status.created_at
-            }
-            if status.status == 'incomplete':
-                evidence = status.incompletetaskevidence
-                entry.update({
-                    'image_url': request.build_absolute_uri(evidence.image.url),
-                    'coordinates': {
-                        'lat': float(evidence.latitude),
-                        'lng': float(evidence.longitude)
-                    },
-                    'notes': evidence.notes
-                })
-            status_data.append(entry)
-        
-        return Response({
+        # Format the response
+        response_data = {
             "descriptions": descriptions,
-            "task_statuses": status_data
-        })
-        
+            "task_statuses": status_serializer.data
+        }
+
+        return Response(response_data)
+
         
 class HeadcountView(APIView):
     def post(self, request):
@@ -340,3 +419,12 @@ class HeadcountView(APIView):
         
         except Site.DoesNotExist:
             return Response({"error": "Site not found"}, status=404)
+        
+        
+class UserViewSet(viewsets.ModelViewSet):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        return User.objects.filter(id=self.request.user.id)
