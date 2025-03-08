@@ -338,7 +338,9 @@ class EnhancedShiftDataView(APIView):
 
         # Fetch all task statuses related to the site, avoiding filtering by date/shift
         task_statuses = TaskStatus.objects.filter(
-            shift_data__site_id=site_id
+            shift_data__site_id=site_id,
+            # shift_data__date=current_date,
+            # shift_data__shift=current_shift
         ).select_related('shift_data', 'incompletetaskevidence')
 
         # Use serializer for consistent data format

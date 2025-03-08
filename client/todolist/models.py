@@ -33,6 +33,9 @@ class TaskStatus(models.Model):
         ('incomplete', 'Incomplete')
     ])
     created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.description}"
 
 class IncompleteTaskEvidence(models.Model):
     task_status = models.OneToOneField(TaskStatus, on_delete=models.CASCADE)

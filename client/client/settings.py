@@ -15,9 +15,10 @@ from decouple import config
 import dj_database_url
 import os
 
-# from dotenv import load_dotenv
+from dotenv import load_dotenv
+load_dotenv()
 
-# load_dotenv()
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -65,9 +66,9 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 CSRF_TRUSTED_ORIGINS = [
-    os.environ.get('Localhost_CORS'),
-    os.environ.get('BaseUrl_CORS'),
-    os.environ.get('localhost_CORS'),
+    # os.environ.get('Localhost_CORS'),
+    # os.environ.get('BaseUrl_CORS'),
+    # os.environ.get('localhost_CORS'),
 ]
 
 CORS_ALLOW_CREDENTIALS = True
