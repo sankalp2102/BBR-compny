@@ -15,8 +15,8 @@ from decouple import config
 import dj_database_url
 import os
 
-from dotenv import load_dotenv
-load_dotenv()
+# from dotenv import load_dotenv
+# load_dotenv()
 
 
 
