@@ -210,3 +210,62 @@ class ShiftPersonnelSubmissionView(APIView):
             return Response({"error": "Invalid Site ID"}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+class ShiftDetailsView(APIView):
+    def get(self, request, site_id, date, shift):
+        """
+        GET API to retrieve all tasks, machinery, task reports, personnel, 
+        and task completion status for a specific site, date, and shift.
+        """
+
+        # Ensure shift exists for the given site & date
+        shift_obj = Shift.objects.filter(site_id=site_id, date=date, shift=shift).first()
+        if not shift_obj:
+            return Response({"error": "Shift not found for the given site and date"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Retrieve all tasks for this shift
+        tasks = Task.objects.filter(shift=shift_obj)
+
+        # Prepare response data
+        shift_details = {
+            "site_id": site_id,
+            "date": date,
+            "shift": shift,
+            "tasks": []
+        }
+
+        # Loop through each task and get related reports
+        for task in tasks:
+            task_status = TaskStatus.objects.filter(task=task).first()
+            task_report = TaskReport.objects.filter(task_status=task_status).first()
+            reason_for_delay = ReasonForDelay.objects.filter(task_report=task_report).first()
+
+            task_data = {
+                "task_id": task.id,
+                "task_name": task.name,
+                "status": task_status.status if task_status else "Not Reported",  # ✅ Include status
+                "machinery_needed": list(task.machinery.all().values_list("name", flat=True)),  # List of machinery names
+                "report": {
+                    "personnel_engaged": task_report.personnel_engaged if task_report else [],
+                    "machinery_used": task_report.machinery_used if task_report else [],
+                    "equipment_used": task_report.equipment_used if task_report else [],
+                    "personnel_idled": task_report.personnel_idled if task_report else [],
+                    "equipment_idled": task_report.equipment_idled if task_report else [],
+                    "reason_for_delay": {
+                        "reason": reason_for_delay.reason if reason_for_delay else None,
+                        "details": reason_for_delay.details if reason_for_delay else None,
+                        "location": reason_for_delay.location if reason_for_delay else None,
+                        "photo": reason_for_delay.photo.url if reason_for_delay and reason_for_delay.photo else None,
+                        "time_reported": reason_for_delay.time_reported if reason_for_delay else None
+                    } if reason_for_delay else None
+                }
+            }
+
+            shift_details["tasks"].append(task_data)
+
+        # Get personnel list for the shift
+        shift_summary = ShiftSummary.objects.filter(site_id=site_id, shift=shift_obj, date=date).first()
+        shift_details["personnel_list"] = shift_summary.personnel_list if shift_summary else []
+
+        return Response(shift_details, status=status.HTTP_200_OK)
+    
