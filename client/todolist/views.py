@@ -96,11 +96,14 @@ class TaskSubmissionView(APIView):
         """
 
         # Extracting data from request
+        site_id = request.data.get("site_id")  # ✅ Ensure Site is provided
+        date = request.data.get("date")  # ✅ Ensure Date is provided
+        shift_name = request.data.get("shift")  # ✅ Ensure Shift is provided
         task_id = request.data.get("task")
         task_name = request.data.get("task_name")
         status_choice = request.data.get("status")  # Complete / Incomplete / Partially Complete
         personnel_engaged = request.data.get("personnel_engaged", [])  
-        machinery_used = request.data.get("machinery_used", [])  # ✅ Text List (not IDs)
+        machinery_used = request.data.get("machinery_used", [])  
         equipment_used = request.data.get("equipment_used", [])  
         personnel_idled = request.data.get("personnel_idled", [])  
         equipment_idled = request.data.get("equipment_idled", [])  
@@ -110,30 +113,39 @@ class TaskSubmissionView(APIView):
         photo = request.FILES.get("photo")
 
         try:
-            # Fetch task by ID or Name
-            if task_id:
-                task = Task.objects.get(id=task_id)
-            elif task_name:
-                task = Task.objects.filter(name=task_name).first()
-                if not task:
-                    return Response({"error": "Task name does not exist"}, status=status.HTTP_400_BAD_REQUEST)
-            else:
-                return Response({"error": "Either task_id or task_name must be provided"}, status=status.HTTP_400_BAD_REQUEST)
+            # ✅ Validate Site
+            site = Site.objects.filter(id=site_id).first()
+            if not site:
+                return Response({"error": "Invalid Site ID"}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Create TaskStatus Entry
+            # ✅ Validate Shift (Ensure Site + Date + Shift exist)
+            shift = Shift.objects.filter(site=site, date=date, shift=shift_name).first()
+            if not shift:
+                return Response({"error": "Invalid Shift for the given Site and Date"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # ✅ Fetch Task by ID or Name (Ensure it belongs to this Shift)
+            if task_id:
+                task = Task.objects.filter(id=task_id, shift=shift).first()
+            elif task_name:
+                task = Task.objects.filter(name=task_name, shift=shift).first()
+            
+            if not task:
+                return Response({"error": "Task does not exist for this shift"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # ✅ Create TaskStatus Entry
             task_status = TaskStatus.objects.create(task=task, status=status_choice, timestamp=now())
 
-            # Create TaskReport Entry
+            # ✅ Create TaskReport Entry
             task_report = TaskReport.objects.create(
                 task_status=task_status,
                 personnel_engaged=personnel_engaged,
-                machinery_used=machinery_used,  # ✅ Now stored as text list
+                machinery_used=machinery_used,  
                 equipment_used=equipment_used,
                 personnel_idled=personnel_idled,
                 equipment_idled=equipment_idled
             )
 
-            # Handle Incomplete or Partially Complete reasons
+            # ✅ Handle Incomplete or Partially Complete reasons
             if status_choice in ["Incomplete", "Partially Complete"] and reason_for_delay:
                 # Convert Coordinates to Location
                 location_name = "Unknown Location"
@@ -159,8 +171,6 @@ class TaskSubmissionView(APIView):
 
             return Response({"message": "Task report submitted successfully!"}, status=status.HTTP_201_CREATED)
 
-        except Task.DoesNotExist:
-            return Response({"error": "Invalid Task ID"}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
