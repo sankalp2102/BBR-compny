@@ -8,7 +8,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
-from rest_framework import permissions
+from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 
@@ -21,8 +21,8 @@ schema_view = get_schema_view(
         contact=openapi.Contact(email="developer@example.com"),
         license=openapi.License(name="MIT License"),
     ),
-    public=True,
-    permission_classes=(permissions.AllowAny,),
+    public=True,  # ✅ Make API schema public
+    permission_classes=[AllowAny],  # ✅ Allow everyone to see Swagger UI
 )
 
 urlpatterns = [
