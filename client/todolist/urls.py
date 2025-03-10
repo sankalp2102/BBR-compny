@@ -1,34 +1,20 @@
 from django.urls import path
-from .views import (
-    StateList, SiteList,
-    ImportExcelView,
-    SiteShiftDataView, SiteMachinesView, SitePeopleView,
-    TaskStatusView, EnhancedShiftDataView, HeadcountView
-)
+from .views import (StateListView, SiteListView,
+                     TaskListView,
+                     ExcelUploadView, TaskSubmissionView,
+                     ShiftPersonnelSubmissionView)
 from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
-    # Data Import
-    path('import/', ImportExcelView.as_view()),
-    
-    
-    path('states/', StateList.as_view()),
-    path('states/<int:state_id>/sites/', SiteList.as_view()),
-    
-    
-    
-    # Site-specific Data
-    path('sites/<int:site_id>/shift-data/', SiteShiftDataView.as_view()),
-    path('sites/<int:site_id>/machines/', SiteMachinesView.as_view()),
-    path('sites/<int:site_id>/people/', SitePeopleView.as_view()),
-    
-    
-    path('task-status/', TaskStatusView.as_view()),
-    path('enhanced-shift-data/<int:site_id>/', EnhancedShiftDataView.as_view()),
-    
-    path('headcount/', HeadcountView.as_view()),  # POST
-    path('sites/<int:site_id>/headcount/', HeadcountView.as_view()),  # GET
+    path('upload-excel/', ExcelUploadView.as_view(), name='upload-excel'),
+    path('states/', StateListView.as_view(), name='state-list'),#Get all states
+    path('sites/<int:state_id>/', SiteListView.as_view(), name='site-list'),#Get sites according to states
+    path('tasks/<int:state_id>/<int:site_id>/<str:date>/<str:shift>/', TaskListView.as_view(), name='task-list'),#Get all tasks with machinery
+    path('submit-report/', TaskSubmissionView.as_view(), name='submit-report'),
+    path('submit-shift-personnel/', ShiftPersonnelSubmissionView.as_view(), name='submit-shift-personnel'),
+
 ]
+
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

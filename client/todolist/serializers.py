@@ -1,71 +1,51 @@
 from rest_framework import serializers
-from .models import State, Site, ShiftData, TaskStatus, IncompleteTaskEvidence, Headcount
-from django.contrib.auth.models import User
+from .models import State, Site, Shift, Task, Machinery, TaskStatus, TaskReport, ReasonForDelay, ShiftSummary
 
 class StateSerializer(serializers.ModelSerializer):
     class Meta:
         model = State
-        fields = ['id', 'name']
+        fields = '__all__'
 
 class SiteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Site
-        fields = ['id', 'name', 'state']
+        fields = '__all__'
 
-class ShiftDataSerializer(serializers.ModelSerializer):
+
+class MachinerySerializer(serializers.ModelSerializer):
     class Meta:
-        model = ShiftData
-        exclude = ['created_at']
-        
-        
+        model = Machinery
+        fields = ['id', 'name']
+
+class TaskSerializer(serializers.ModelSerializer):
+    machinery = MachinerySerializer(many=True)  # Include machinery in task response
+
+    class Meta:
+        model = Task
+        fields = ['id', 'name', 'machinery']
+
 class TaskStatusSerializer(serializers.ModelSerializer):
     class Meta:
         model = TaskStatus
-        fields = ['id', 'description', 'status', 'created_at']
+        fields = '__all__'
 
-class IncompleteTaskEvidenceSerializer(serializers.ModelSerializer):
+class TaskReportSerializer(serializers.ModelSerializer):
     class Meta:
-        model = IncompleteTaskEvidence
-        fields = ['image', 'latitude', 'longitude', 'notes']
+        model = TaskReport
+        fields = '__all__'
 
-class TaskStatusResponseSerializer(serializers.ModelSerializer):
-    evidence = IncompleteTaskEvidenceSerializer(source='incompletetaskevidence', read_only=True)
-    
-    class Meta:
-        model = TaskStatus
-        fields = ['id', 'description', 'status', 'created_at', 'evidence']
+    def validate_machinery_used(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError("machinery_used must be a list of text values.")
+        return value
 
-class TaskCreateSerializer(serializers.Serializer):
-    shift_data_id = serializers.IntegerField()
-    description = serializers.CharField()
-    status = serializers.ChoiceField(choices=['completed', 'incomplete'])
-    image = serializers.ImageField(required=False)
-    latitude = serializers.DecimalField(required=False, max_digits=9, decimal_places=6)
-    longitude = serializers.DecimalField(required=False, max_digits=9, decimal_places=6)
-    notes = serializers.CharField(required=False, allow_blank=True)
-    
-    def validate(self, data):
-        if data.get('status') == 'incomplete':
-            if not all(field in data for field in ['image', 'latitude', 'longitude']):
-                raise serializers.ValidationError(
-                    "Image, latitude, and longitude are required for incomplete tasks"
-                )
-        return data
-    
-class HeadcountSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Headcount
-        fields = ['id', 'person_name', 'count', 'date', 'shift']
 
-class HeadcountCreateSerializer(serializers.Serializer):
-    site_id = serializers.IntegerField()
-    person_name = serializers.CharField(max_length=100)
-    count = serializers.IntegerField(min_value=1)
-    date = serializers.DateField(required=False)
-    shift = serializers.IntegerField(required=False)
-    
-class UserSerializer(serializers.ModelSerializer):
+class ReasonForDelaySerializer(serializers.ModelSerializer):
     class Meta:
-        model = User
-        fields = ('id', 'username', 'email', 'first_name', 'last_name')
-        read_only_fields = ('email',)
+        model = ReasonForDelay
+        fields = '__all__'
+
+class ShiftSummarySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ShiftSummary
+        fields = '__all__'
