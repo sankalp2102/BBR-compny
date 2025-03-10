@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.auth.models import AbstractUser
 
 class State(models.Model):
     name = models.CharField(max_length=255, unique=True)
@@ -85,3 +86,26 @@ class ShiftSummary(models.Model):
 
     def __str__(self):
         return f"Shift Summary - {self.site.name} - {self.shift.shift} ({self.date})"
+    
+USER_ROLES = (
+    ('CEO', 'CEO'),
+    ('Office', 'Office'),
+    ('Technician', 'Technician'),
+)
+
+class CustomUser(AbstractUser):
+    role = models.CharField(max_length=20, choices=USER_ROLES, default='Technician')
+
+    groups = models.ManyToManyField(
+        "auth.Group",
+        related_name="customuser_set",  # ✅ Fix the conflict with auth.User
+        blank=True
+    )
+    user_permissions = models.ManyToManyField(
+        "auth.Permission",
+        related_name="customuser_permissions_set",  # ✅ Fix the conflict with auth.User
+        blank=True
+    )
+
+    def __str__(self):
+        return f"{self.username} - {self.role}"

@@ -11,12 +11,12 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
 from pathlib import Path
-from decouple import config
-import dj_database_url
 import os
+from datetime import timedelta
 
 # from dotenv import load_dotenv
 # load_dotenv()
+
 
 
 
@@ -43,7 +43,6 @@ ALLOWED_HOSTS = [
 # Application definition
 
 INSTALLED_APPS = [
-    'todolist',
     'rest_framework',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -54,6 +53,7 @@ INSTALLED_APPS = [
     'drf_yasg',
     'corsheaders',
     'rest_framework_simplejwt',
+    'todolist',
 ]
 
 MIDDLEWARE = [
@@ -98,11 +98,11 @@ WSGI_APPLICATION = 'client.wsgi.application'
 
 
 DATABASES = {
-    'default': dj_database_url.config(default=config('DATABASE_URL'))
-    # 'default': {
-    #     'ENGINE': 'django.db.backends.sqlite3',
-    #     'NAME': BASE_DIR / 'db.sqlite3',
-    # }
+    #'default': dj_database_url.config(default=config('DATABASE_URL'))
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
 }
 
 
@@ -158,3 +158,9 @@ REST_FRAMEWORK = {
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=100),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=100),
+}
+
+AUTH_USER_MODEL = 'todolist.CustomUser'

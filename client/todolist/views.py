@@ -1,16 +1,46 @@
 from rest_framework.generics import ListAPIView, CreateAPIView
 from .models import State, Site, Shift, Task, Machinery, TaskStatus, TaskReport, ReasonForDelay, ShiftSummary
-from .serializers import StateSerializer, SiteSerializer, TaskSerializer, TaskStatusSerializer, TaskReportSerializer, ReasonForDelaySerializer, ShiftSummarySerializer
+from .serializers import StateSerializer, SiteSerializer, TaskSerializer, UserRegisterSerializer
 import pandas as pd
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework import status
+from rest_framework.permissions import AllowAny, BasePermission 
 from django.utils.timezone import now
 from geopy.geocoders import Nominatim 
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+from django.contrib.auth import get_user_model
+
+
+User = get_user_model()
+
+class UserRegisterView(CreateAPIView):
+    queryset = User.objects.all()
+    serializer_class = UserRegisterSerializer
+    permission_classes = [AllowAny]  # ✅ No authentication needed to register
+    
+class IsOfficeOrCEO(BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role in ['Office', 'CEO']
+    #Put this in any function to get to make sure the user is authenticated and has the role of Office or CEO
+    #permission_classes = [IsOfficeOrCEO]
+    #Similar for other roles also
+
+
+
+
 class StateListView(ListAPIView):
     queryset = State.objects.all()
     serializer_class = StateSerializer
+    
+    @swagger_auto_schema(
+        operation_description="Retrieve a list of all states.",
+        responses={200: StateSerializer(many=True)}
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
 
 class SiteListView(ListAPIView):
     serializer_class = SiteSerializer
@@ -18,6 +48,16 @@ class SiteListView(ListAPIView):
     def get_queryset(self):
         state_id = self.kwargs['state_id']
         return Site.objects.filter(state_id=state_id)
+    
+    @swagger_auto_schema(
+        operation_description="Retrieve a list of sites for a specific state.",
+        manual_parameters=[
+            openapi.Parameter('state_id', openapi.IN_PATH, description="State ID", type=openapi.TYPE_INTEGER)
+        ],
+        responses={200: SiteSerializer(many=True)}
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
 
 class TaskListView(ListAPIView):
     serializer_class = TaskSerializer
@@ -41,6 +81,20 @@ class TaskListView(ListAPIView):
 
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    @swagger_auto_schema(
+        operation_description="Retrieve tasks for a specific state, site, date, and shift.",
+        manual_parameters=[
+            openapi.Parameter('state_id', openapi.IN_PATH, description="State ID", type=openapi.TYPE_INTEGER),
+            openapi.Parameter('site_id', openapi.IN_PATH, description="Site ID", type=openapi.TYPE_INTEGER),
+            openapi.Parameter('date', openapi.IN_PATH, description="Shift Date (YYYY-MM-DD)", type=openapi.TYPE_STRING),
+            openapi.Parameter('shift', openapi.IN_PATH, description="Shift (Day/Night)", type=openapi.TYPE_STRING)
+        ],
+        responses={200: TaskSerializer(many=True)}
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+    
 
 class ExcelUploadView(APIView):
     parser_classes = (MultiPartParser, FormParser)
@@ -94,6 +148,25 @@ class TaskSubmissionView(APIView):
         """
         API to handle task submission based on its status.
         """
+    @swagger_auto_schema(
+    operation_description="Submit a task report with task status, personnel, and machinery details.",
+    request_body=openapi.Schema(
+        type=openapi.TYPE_OBJECT,
+        required=['task', 'status', 'personnel_engaged'],
+        properties={
+            'task': openapi.Schema(type=openapi.TYPE_INTEGER, description="Task ID"),
+            'status': openapi.Schema(type=openapi.TYPE_STRING, description="Status (Complete, Incomplete, Partially Complete)"),
+            'personnel_engaged': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT), description="List of personnel"),
+            'machinery_used': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_STRING), description="Machinery used"),
+            'equipment_used': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_STRING), description="Equipment used"),
+            'reason_for_delay': openapi.Schema(type=openapi.TYPE_OBJECT, description="Reason for delay if Incomplete or Partially Complete"),
+            'photo': openapi.Schema(type=openapi.TYPE_FILE, description="Photo if delay occurred")
+        }
+    ),
+    responses={201: "Task report submitted successfully"}
+    )
+    def post(self, request):
+
 
         # Extracting data from request
         site_id = request.data.get("site_id")  # ✅ Ensure Site is provided
@@ -179,6 +252,22 @@ class ShiftPersonnelSubmissionView(APIView):
         """
         API to handle personnel submission for a given site, shift, and date.
         """
+
+    @swagger_auto_schema(
+        operation_description="Submit total personnel count for a site and shift.",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['site_id', 'shift', 'date', 'personnel_list'],
+            properties={
+                'site_id': openapi.Schema(type=openapi.TYPE_INTEGER, description="Site ID"),
+                'shift': openapi.Schema(type=openapi.TYPE_STRING, description="Shift (Day/Night)"),
+                'date': openapi.Schema(type=openapi.TYPE_STRING, description="Date (YYYY-MM-DD)"),
+                'personnel_list': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT), description="List of personnel with roles and count")
+            }
+        ),
+        responses={201: "Shift personnel data submitted successfully"}
+    )
+    def post(self, request):
 
         # Extracting data from request
         site_id = request.data.get("site_id")
