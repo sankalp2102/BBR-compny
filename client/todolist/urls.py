@@ -22,8 +22,9 @@ schema_view = get_schema_view(
         contact=openapi.Contact(email="developer@example.com"),
         license=openapi.License(name="MIT License"),
     ),
-    public=True,  # ✅ Make API schema public
-    permission_classes=[AllowAny],  # ✅ Allow everyone to see Swagger UI
+    public=True,
+    authentication_classes=[],  # ✅ Remove authentication for Swagger UI
+    permission_classes=[AllowAny],  # ✅ Make it publicly accessible
 )
 
 urlpatterns = [
