@@ -17,6 +17,7 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 
 class UserRegisterView(CreateAPIView):
+    
     queryset = User.objects.all()
     serializer_class = UserRegisterSerializer
     permission_classes = [AllowAny]  # ✅ No authentication needed to register
@@ -144,6 +145,7 @@ class ExcelUploadView(APIView):
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class TaskSubmissionView(APIView):
+    parser_classes = (MultiPartParser, FormParser)
     def post(self, request):
         """
         API to handle task submission based on its status.
@@ -152,14 +154,21 @@ class TaskSubmissionView(APIView):
     operation_description="Submit a task report with task status, personnel, and machinery details.",
     request_body=openapi.Schema(
         type=openapi.TYPE_OBJECT,
-        required=['task', 'status', 'personnel_engaged'],
+        required=['task', 'status', 'personnel_engaged', 'site_id', 'date', 'shift', 'machinery_used','task_name'],
         properties={
-            'task': openapi.Schema(type=openapi.TYPE_INTEGER, description="Task ID"),
+            'site_id': openapi.Schema(type=openapi.TYPE_INTEGER, description="Site ID"),
+            'date': openapi.Schema(type=openapi.TYPE_STRING, description="Date (YYYY-MM-DD)"),
+            'shift': openapi.Schema(type=openapi.TYPE_STRING, description="Shift (Day/Night)"),
+            'task_name': openapi.Schema(type=openapi.TYPE_INTEGER, description="Task ID"),
             'status': openapi.Schema(type=openapi.TYPE_STRING, description="Status (Complete, Incomplete, Partially Complete)"),
             'personnel_engaged': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT), description="List of personnel"),
             'machinery_used': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_STRING), description="Machinery used"),
             'equipment_used': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_STRING), description="Equipment used"),
+            'personnel_idled': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT), description="List of idled personnel"),
+            'equipment_idled': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT), description="List of idled equipment"),
             'reason_for_delay': openapi.Schema(type=openapi.TYPE_OBJECT, description="Reason for delay if Incomplete or Partially Complete"),
+            'latitude': openapi.Schema(type=openapi.TYPE_INTEGER, description="Latitude if delay occurred"),
+            'longitude': openapi.Schema(type=openapi.TYPE_INTEGER, description="Longitude if delay occurred"),
             'photo': openapi.Schema(type=openapi.TYPE_FILE, description="Photo if delay occurred")
         }
     ),
