@@ -11,6 +11,8 @@ from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+
 
 
 schema_view = get_schema_view(
@@ -28,9 +30,10 @@ schema_view = get_schema_view(
 )
 
 urlpatterns = [
-    re_path(r'^swagger/$', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
-    re_path(r'^redoc/$', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
-
+    path('schema/', SpectacularAPIView.as_view(), name='schema'), 
+    # Optional UI:
+    path('swagger-ui/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
     
     path('register/', UserRegisterView.as_view(), name='register'),
     path('login/', TokenObtainPairView.as_view(), name='login'),
@@ -42,7 +45,7 @@ urlpatterns = [
     path('tasks/<int:state_id>/<int:site_id>/<str:date>/<str:shift>/', TaskListView.as_view(), name='task-list'),#Get all tasks with machinery
     path('submit-report/', TaskSubmissionView.as_view(), name='submit-report'),
     path('submit-shift-personnel/', ShiftPersonnelSubmissionView.as_view(), name='submit-shift-personnel'),
-    path('get-shift-details/<int:site_id>/<str:date>/<str:shift>/', ShiftDetailsView.as_view(), name='get-shift-details'),
+    path('get-all-data/<int:site_id>/<str:date>/<str:shift>/', ShiftDetailsView.as_view(), name='get-all-data'),
 
 ]
 

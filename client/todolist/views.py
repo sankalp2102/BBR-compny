@@ -1,6 +1,6 @@
 from rest_framework.generics import ListAPIView, CreateAPIView
 from .models import State, Site, Shift, Task, Machinery, TaskStatus, TaskReport, ReasonForDelay, ShiftSummary
-from .serializers import StateSerializer, SiteSerializer, TaskSerializer, UserRegisterSerializer
+from .serializers import StateSerializer, SiteSerializer, TaskSerializer, UserRegisterSerializer, ShiftSummarySerializer
 import pandas as pd
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -9,9 +9,10 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny, BasePermission 
 from django.utils.timezone import now
 from geopy.geocoders import Nominatim 
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
 from django.contrib.auth import get_user_model
+from drf_spectacular.utils import extend_schema
+from rest_framework import generics
+from rest_framework.permissions import IsAuthenticated
 
 
 User = get_user_model()
@@ -29,19 +30,9 @@ class IsOfficeOrCEO(BasePermission):
     #permission_classes = [IsOfficeOrCEO]
     #Similar for other roles also
 
-
-
-
 class StateListView(ListAPIView):
     queryset = State.objects.all()
     serializer_class = StateSerializer
-    
-    @swagger_auto_schema(
-        operation_description="Retrieve a list of all states.",
-        responses={200: StateSerializer(many=True)}
-    )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
 
 class SiteListView(ListAPIView):
     serializer_class = SiteSerializer
@@ -49,16 +40,6 @@ class SiteListView(ListAPIView):
     def get_queryset(self):
         state_id = self.kwargs['state_id']
         return Site.objects.filter(state_id=state_id)
-    
-    @swagger_auto_schema(
-        operation_description="Retrieve a list of sites for a specific state.",
-        manual_parameters=[
-            openapi.Parameter('state_id', openapi.IN_PATH, description="State ID", type=openapi.TYPE_INTEGER)
-        ],
-        responses={200: SiteSerializer(many=True)}
-    )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
 
 class TaskListView(ListAPIView):
     serializer_class = TaskSerializer
@@ -83,20 +64,6 @@ class TaskListView(ListAPIView):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
     
-    @swagger_auto_schema(
-        operation_description="Retrieve tasks for a specific state, site, date, and shift.",
-        manual_parameters=[
-            openapi.Parameter('state_id', openapi.IN_PATH, description="State ID", type=openapi.TYPE_INTEGER),
-            openapi.Parameter('site_id', openapi.IN_PATH, description="Site ID", type=openapi.TYPE_INTEGER),
-            openapi.Parameter('date', openapi.IN_PATH, description="Shift Date (YYYY-MM-DD)", type=openapi.TYPE_STRING),
-            openapi.Parameter('shift', openapi.IN_PATH, description="Shift (Day/Night)", type=openapi.TYPE_STRING)
-        ],
-        responses={200: TaskSerializer(many=True)}
-    )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
-    
-
 class ExcelUploadView(APIView):
     parser_classes = (MultiPartParser, FormParser)
 
@@ -145,7 +112,7 @@ class ExcelUploadView(APIView):
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class TaskSubmissionView(APIView):
-    parser_classes = (MultiPartParser, FormParser)
+    # parser_classes = (MultiPartParser, FormParser)
     def post(self, request):
         """
         API to handle task submission based on its status.
@@ -257,44 +224,28 @@ class TaskSubmissionView(APIView):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
-class ShiftPersonnelSubmissionView(APIView):
-    def post(self, request):
-        """
-        API to handle personnel submission for a given site, shift, and date.
-        """
+class ShiftPersonnelSubmissionView(generics.CreateAPIView):
+    queryset = ShiftSummary.objects.all()
+    serializer_class = ShiftSummarySerializer
+    permission_classes = [IsAuthenticated]
 
-    @swagger_auto_schema(
-        operation_description="Submit total personnel count for a site and shift.",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=['site_id', 'shift', 'date', 'personnel_list'],
-            properties={
-                'site_id': openapi.Schema(type=openapi.TYPE_INTEGER, description="Site ID"),
-                'shift': openapi.Schema(type=openapi.TYPE_STRING, description="Shift (Day/Night)"),
-                'date': openapi.Schema(type=openapi.TYPE_STRING, description="Date (YYYY-MM-DD)"),
-                'personnel_list': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT), description="List of personnel with roles and count")
-            }
-        ),
-        responses={201: "Shift personnel data submitted successfully"}
+    @extend_schema(
+        summary="Submit Shift Personnel Data",
+        request=ShiftSummarySerializer,
+        responses={201: ShiftSummarySerializer, 400: "Bad Request", 500: "Internal Server Error"},
     )
-    def post(self, request):
-
-        # Extracting data from request
+    def create(self, request, *args, **kwargs):
         site_id = request.data.get("site_id")
-        shift_name = request.data.get("shift")  # "Day" or "Night"
-        date = request.data.get("date")  # Format: YYYY-MM-DD
-        personnel_list = request.data.get("personnel_list", [])  # List of {role, count}
+        shift_name = request.data.get("shift")
+        date = request.data.get("date")
+        personnel_list = request.data.get("personnel_list", [])
 
         try:
-            # Validate site
             site = Site.objects.get(id=site_id)
-
-            # Validate shift
             shift = Shift.objects.filter(site=site, date=date, shift=shift_name).first()
             if not shift:
                 return Response({"error": "Shift not found for the given site and date"}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Create or Update Shift Summary
             shift_summary, created = ShiftSummary.objects.update_or_create(
                 site=site, shift=shift, date=date,
                 defaults={"personnel_list": personnel_list}
@@ -304,12 +255,11 @@ class ShiftPersonnelSubmissionView(APIView):
                 {"message": "Shift personnel data submitted successfully!", "shift_summary_id": shift_summary.id},
                 status=status.HTTP_201_CREATED
             )
-
         except Site.DoesNotExist:
             return Response({"error": "Invalid Site ID"}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
+
 class ShiftDetailsView(APIView):
     def get(self, request, site_id, date, shift):
         """
@@ -367,4 +317,5 @@ class ShiftDetailsView(APIView):
         shift_details["personnel_list"] = shift_summary.personnel_list if shift_summary else []
 
         return Response(shift_details, status=status.HTTP_200_OK)
+    
     

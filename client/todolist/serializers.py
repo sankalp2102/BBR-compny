@@ -39,6 +39,18 @@ class TaskReportSerializer(serializers.ModelSerializer):
         if not isinstance(value, list):
             raise serializers.ValidationError("machinery_used must be a list of text values.")
         return value
+    def to_representation(self, instance):
+        """Ensure JSON fields return proper lists instead of strings."""
+        data = super().to_representation(instance)
+
+        # ✅ Ensure JSON fields are properly returned as lists
+        json_fields = ["personnel_engaged", "machinery_used", "equipment_used", "personnel_idled", "equipment_idled"]
+        for field in json_fields:
+            if isinstance(data[field], str):  # If stored as a string, convert it back to JSON
+                import json
+                data[field] = json.loads(data[field])
+
+        return data
 
 
 class ReasonForDelaySerializer(serializers.ModelSerializer):
