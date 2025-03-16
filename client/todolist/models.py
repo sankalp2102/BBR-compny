@@ -1,56 +1,111 @@
 from django.db import models
+from django.contrib.auth.models import AbstractUser
 
 class State(models.Model):
-    name = models.CharField(max_length=100, unique=True)
+    name = models.CharField(max_length=255, unique=True)
+
+    def __str__(self):
+        return self.name
 
 class Site(models.Model):
-    name = models.CharField(max_length=100)
     state = models.ForeignKey(State, on_delete=models.CASCADE)
-    
-    class Meta:
-        unique_together = ('name', 'state')
+    name = models.CharField(max_length=255)
 
-class ShiftData(models.Model):
-    SHIFT_CHOICES = [(1, 'Shift 1'), (2, 'Shift 2')]
-    
+    def __str__(self):
+        return self.name
+
+class Shift(models.Model):
+    SHIFT_CHOICES = [('Day', 'Day'), ('Night', 'Night')]
+
     site = models.ForeignKey(Site, on_delete=models.CASCADE)
-    description = models.TextField()
-    shift = models.IntegerField(choices=SHIFT_CHOICES)
     date = models.DateField()
-    machines = models.TextField()  # Comma-separated values
-    people = models.TextField()    # Comma-separated values
-    created_at = models.DateTimeField(auto_now_add=True)
+    shift = models.CharField(max_length=10, choices=SHIFT_CHOICES)
 
-    class Meta:
-        ordering = ['-date', 'shift']
+    def __str__(self):
+        return f"{self.site.name} - {self.date} - {self.shift}"
+
+class Machinery(models.Model):
+    name = models.CharField(max_length=255)
+
+    def __str__(self):
+        return self.name
+
+class Task(models.Model):
+    shift = models.ForeignKey(Shift, on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    machinery = models.ManyToManyField(Machinery, related_name="tasks")  # Allow multiple machinery
+
+    def __str__(self):
+        return self.name
 
 
 class TaskStatus(models.Model):
-    shift_data = models.ForeignKey(ShiftData, on_delete=models.CASCADE, related_name='task_statuses')
-    description = models.TextField()  # Copy of original description
-    status = models.CharField(max_length=20, choices=[
-        ('completed', 'Completed'),
-        ('incomplete', 'Incomplete')
-    ])
-    created_at = models.DateTimeField(auto_now_add=True)
+    STATUS_CHOICES = [
+        ('Complete', 'Complete'),
+        ('Incomplete', 'Incomplete'),
+        ('Partially Complete', 'Partially Complete'),
+    ]
+    task = models.ForeignKey(Task, on_delete=models.CASCADE)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+    timestamp = models.DateTimeField(auto_now_add=True)
 
-class IncompleteTaskEvidence(models.Model):
+    def __str__(self):
+        return f"{self.task.name} - {self.status}"
+
+
+class TaskReport(models.Model):
     task_status = models.OneToOneField(TaskStatus, on_delete=models.CASCADE)
-    image = models.ImageField(upload_to='task_evidence/')
-    latitude = models.DecimalField(max_digits=9, decimal_places=6)
-    longitude = models.DecimalField(max_digits=9, decimal_places=6)
-    notes = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    
-class Headcount(models.Model):
-    SHIFT_CHOICES = [(1, 'Shift 1'), (2, 'Shift 2')]
-    
-    site = models.ForeignKey(Site, on_delete=models.CASCADE)
-    person_name = models.CharField(max_length=100)
-    count = models.PositiveIntegerField(default=1)
-    date = models.DateField()
-    shift = models.IntegerField(choices=SHIFT_CHOICES)
-    created_at = models.DateTimeField(auto_now_add=True)
+    personnel_engaged = models.JSONField(default=list)  # Stores role + count
+    machinery_used = models.JSONField(default=list)  # ✅ Store machinery as text list
+    equipment_used = models.JSONField(default=list)  # ✅ Store equipment as text list
+    personnel_idled = models.JSONField(default=list, blank=True, null=True)  
+    equipment_idled = models.JSONField(default=list, blank=True, null=True)  
 
-    class Meta:
-        unique_together = ('site', 'person_name', 'date', 'shift')
+    def __str__(self):
+        return f"Report for {self.task_status.task.name} ({self.task_status.status})"
+
+
+class ReasonForDelay(models.Model):
+    task_report = models.ForeignKey(TaskReport, on_delete=models.CASCADE)
+    reason = models.CharField(max_length=255)
+    details = models.TextField()
+    photo = models.ImageField(upload_to='media/', blank=True, null=True)  # Save image
+    location = models.CharField(max_length=255, blank=True, null=True)  # Converted location
+    latitude = models.FloatField(blank=True, null=True)  # Store latitude
+    longitude = models.FloatField(blank=True, null=True)  # Store longitude
+    time_reported = models.DateTimeField(auto_now_add=True)  # Time of image upload
+
+    def __str__(self):
+        return f"Delay for {self.task_report.task_status.task.name} - {self.reason}"
+
+class ShiftSummary(models.Model):
+    site = models.ForeignKey(Site, on_delete=models.CASCADE)  # ✅ Link to Site
+    shift = models.ForeignKey(Shift, on_delete=models.CASCADE)  # ✅ Link to Shift
+    personnel_list = models.JSONField(default=list)  # ✅ Store personnel count
+    date = models.DateField()  # ✅ Store date separately
+
+    def __str__(self):
+        return f"Shift Summary - {self.site.name} - {self.shift.shift} ({self.date})"
+    
+USER_ROLES = (
+    ('CEO', 'CEO'),
+    ('Office', 'Office'),
+    ('Technician', 'Technician'),
+)
+
+class CustomUser(AbstractUser):
+    role = models.CharField(max_length=20, choices=USER_ROLES, default='Technician')
+
+    groups = models.ManyToManyField(
+        "auth.Group",
+        related_name="customuser_set",  # ✅ Fix the conflict with auth.User
+        blank=True
+    )
+    user_permissions = models.ManyToManyField(
+        "auth.Permission",
+        related_name="customuser_permissions_set",  # ✅ Fix the conflict with auth.User
+        blank=True
+    )
+
+    def __str__(self):
+        return f"{self.username} - {self.role}"

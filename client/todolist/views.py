@@ -1,332 +1,321 @@
-from collections import defaultdict
-from django.core.cache import cache
-from datetime import date
-from django.utils import timezone
+from rest_framework.generics import ListAPIView, CreateAPIView
+from .models import State, Site, Shift, Task, Machinery, TaskStatus, TaskReport, ReasonForDelay, ShiftSummary
+from .serializers import StateSerializer, SiteSerializer, TaskSerializer, UserRegisterSerializer, ShiftSummarySerializer
+import pandas as pd
 from rest_framework.views import APIView
 from rest_framework.response import Response
-import pandas as pd
-from .models import (State, Site, ShiftData, TaskStatus, IncompleteTaskEvidence, Headcount)
-from .serializers import (
-    StateSerializer,SiteSerializer, TaskCreateSerializer,HeadcountCreateSerializer
-)
-from .utils import get_current_shift, process_list_field
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-
-# Helper Functions
-def get_cache_key(site_id, suffix):
-    current_date = date.today()
-    current_shift = get_current_shift()
-    return f'site_{site_id}:{current_date}:{current_shift}:{suffix}'
-
-# State/Site Navigation APIs
-class StateList(APIView):
-    def get(self, request):
-        states = State.objects.all()
-        serializer = StateSerializer(states, many=True)
-        return Response(serializer.data)
-
-class SiteList(APIView):
-    def get(self, request, state_id):
-        sites = Site.objects.filter(state_id=state_id)
-        serializer = SiteSerializer(sites, many=True)
-        return Response(serializer.data)
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework import status
+from rest_framework.permissions import AllowAny, BasePermission 
+from django.utils.timezone import now
+from geopy.geocoders import Nominatim 
+from django.contrib.auth import get_user_model
+from drf_spectacular.utils import extend_schema
+from rest_framework import generics
+from rest_framework.permissions import IsAuthenticated
 
 
-class ImportExcelView(APIView):
-    def post(self, request):
+User = get_user_model()
+
+class UserRegisterView(CreateAPIView):
+    
+    queryset = User.objects.all()
+    serializer_class = UserRegisterSerializer
+    permission_classes = [AllowAny]  # ✅ No authentication needed to register
+    
+class IsOfficeOrCEO(BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role in ['Office', 'CEO']
+    #Put this in any function to get to make sure the user is authenticated and has the role of Office or CEO
+    #permission_classes = [IsOfficeOrCEO]
+    #Similar for other roles also
+
+class StateListView(ListAPIView):
+    queryset = State.objects.all()
+    serializer_class = StateSerializer
+
+class SiteListView(ListAPIView):
+    serializer_class = SiteSerializer
+
+    def get_queryset(self):
+        state_id = self.kwargs['state_id']
+        return Site.objects.filter(state_id=state_id)
+
+class TaskListView(ListAPIView):
+    serializer_class = TaskSerializer
+
+    def get_queryset(self):
+        state_id = self.kwargs['state_id']
+        site_id = self.kwargs['site_id']
+        date = self.kwargs['date']
+        shift = self.kwargs['shift']
+
         try:
-            df = pd.read_excel(request.FILES['file'])
-            
-            df['date'] = pd.to_datetime(df['date'], format='%m/%d/%Y', errors='coerce')
-            
-            # Drop rows with invalid dates
-            df = df[df['date'].notna()]
-            
-            
-            required_columns = ['state', 'site', 'description', 
-                               'shift', 'date', 'machines', 'people']
-            
-            # Validate Excel columns
-            missing = set(required_columns) - set(df.columns)
-            if missing:
-                return Response({"error": f"Missing columns: {missing}"}, status=400)
+            shift_obj = Shift.objects.get(site_id=site_id, date=date, shift=shift)
+            return Task.objects.filter(shift=shift_obj).prefetch_related('machinery')
+        except Shift.DoesNotExist:
+            return Task.objects.none()
 
-            cache_updates = defaultdict(lambda: {
-                'descriptions': [],
-                'machines': set(),
-                'people': set(),
-                'site_id': None,
-                'date': None,
-                'shift': None
-            })
+    def get(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        if not queryset.exists():
+            return Response({"message": "No tasks found for the given filters"}, status=status.HTTP_404_NOT_FOUND)
 
-            state_cache = {}
-            site_cache = {}
-            shift_data_objects = []
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+class ExcelUploadView(APIView):
+    parser_classes = (MultiPartParser, FormParser)
 
-            for _, row in df.iterrows():
-                try:
-                    # Process state
-                    state_name = str(row['state']).strip()
-                    if not state_name:
-                        continue
-                        
-                    if state_name not in state_cache:
-                        state, _ = State.objects.get_or_create(name=state_name)
-                        state_cache[state_name] = state
-                    state = state_cache[state_name]
+    def post(self, request, *args, **kwargs):
+        file = request.FILES.get('file')
 
-                    # Process site
-                    site_name = str(row['site']).strip()
-                    if not site_name:
-                        continue
-                        
-                    site_key = (state.id, site_name)
-                    if site_key not in site_cache:
-                        site, _ = Site.objects.get_or_create(
-                            name=site_name,
-                            state=state
-                        )
-                        site_cache[site_key] = site
-                    site = site_cache[site_key]
+        if not file:
+            return Response({"error": "No file uploaded"}, status=status.HTTP_400_BAD_REQUEST)
 
-                    # Process description
-                    description = str(row['description']).strip()
-                    if not description:
-                        continue
+        try:
+            df = pd.read_excel(file)
 
-                    # Process machines and people
-                    machines = process_list_field(str(row['machines']))
-                    people = process_list_field(str(row['people']))
+            for index, row in df.iterrows():
+                # Ensure state exists
+                state, _ = State.objects.get_or_create(name=row['State'])
 
-                    # Create ShiftData object
-                    shift_data_objects.append(ShiftData(
-                        site=site,
-                        description=description,
-                        shift=int(row['shift']),
-                        date=row['date'].date(),
-                        machines=",".join(machines),
-                        people=",".join(people)
-                    ))
+                # Ensure site exists
+                site, _ = Site.objects.get_or_create(state=state, name=row['Site'])
 
-                    # Prepare cache updates
-                    cache_key = (site.id, str(row['date'].date()), int(row['shift']))
-                    cache_entry = cache_updates[cache_key]
-                    cache_entry['descriptions'].append(description)
-                    cache_entry['machines'].update(machines)
-                    cache_entry['people'].update(people)
-                    cache_entry['site_id'] = site.id
-                    cache_entry['date'] = str(row['date'].date())
-                    cache_entry['shift'] = int(row['shift'])
+                # Ensure shift exists
+                shift, _ = Shift.objects.get_or_create(
+                    site=site,
+                    date=row['Date'],
+                    shift=row['Shift']
+                )
 
-                except Exception as e:
-                    print(f"Error processing row {_}: {str(e)}")
-                    continue
+                # Ensure task exists
+                task, _ = Task.objects.get_or_create(
+                    shift=shift,
+                    name=row['Task']
+                )
 
-            # Bulk create and update caches
-            if shift_data_objects:
-                ShiftData.objects.bulk_create(shift_data_objects)
-                
-                for key in cache_updates:
-                    data = cache_updates[key]
-                    base_key = f"site_{data['site_id']}:{data['date']}:{data['shift']}"
-                    
-                    # Update descriptions
-                    desc_key = f"{base_key}:descriptions"
-                    existing_desc = cache.get(desc_key, [])
-                    cache.set(desc_key, existing_desc + data['descriptions'], 30*24*60*60)
-                    
-                    # Update machines
-                    machine_key = f"{base_key}:machines"
-                    existing_machines = set(cache.get(machine_key, []))
-                    existing_machines.update(data['machines'])
-                    cache.set(machine_key, sorted(existing_machines), 30*24*60*60)
-                    
-                    # Update people
-                    people_key = f"{base_key}:people"
-                    existing_people = set(cache.get(people_key, []))
-                    existing_people.update(data['people'])
-                    cache.set(people_key, sorted(existing_people), 30*24*60*60)
+                # Ensure machinery exists separately
+                machinery_list = [m.strip() for m in str(row['Machinery']).split(",")]
+                machinery_objects = []
+                for machinery_name in machinery_list:
+                    machinery, _ = Machinery.objects.get_or_create(name=machinery_name)
+                    machinery_objects.append(machinery)
 
-            return Response({
-                "message": f"Processed {len(shift_data_objects)} valid records",
-                "states": len(state_cache),
-                "sites": len(site_cache)
-            }, status=201)
+                # Assign machinery to the task
+                task.machinery.set(machinery_objects)  # ✅ Correct Many-to-Many assignment
+
+            return Response({"message": "Data imported successfully!"}, status=status.HTTP_201_CREATED)
 
         except Exception as e:
-            return Response({"error": str(e)}, status=400)
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
-class SiteShiftDataView(APIView):
-    def get(self, request, site_id):
-        current_date = date.today()
-        current_shift = get_current_shift()
-        cache_key = f"site_{site_id}:{current_date}:{current_shift}:descriptions"
-        return Response({
-            "site_id": site_id,
-            "date": current_date,
-            "shift": current_shift,
-            "descriptions": cache.get(cache_key, [])
-        })
-
-class SiteMachinesView(APIView):
-    def get(self, request, site_id):
-        current_date = date.today()
-        current_shift = get_current_shift()
-        cache_key = f"site_{site_id}:{current_date}:{current_shift}:machines"
-        return Response({
-            "site_id": site_id,
-            "date": current_date,
-            "shift": current_shift,
-            "machines": cache.get(cache_key, [])
-        })
-
-class SitePeopleView(APIView):
-    def get(self, request, site_id):
-        current_date = date.today()
-        current_shift = get_current_shift()
-        cache_key = f"site_{site_id}:{current_date}:{current_shift}:people"
-        return Response({
-            "site_id": site_id,
-            "date": current_date,
-            "shift": current_shift,
-            "people": cache.get(cache_key, [])
-        })
-        
-        
-class TaskStatusView(APIView):
-    parser_classes = (MultiPartParser, FormParser, JSONParser)
+class TaskSubmissionView(APIView):
+    # parser_classes = (MultiPartParser, FormParser)
     def post(self, request):
-        serializer = TaskCreateSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=400)
-        
+        """
+        API to handle task submission based on its status.
+        """
+    # @swagger_auto_schema(
+    # operation_description="Submit a task report with task status, personnel, and machinery details.",
+    # request_body=openapi.Schema(
+    #     type=openapi.TYPE_OBJECT,
+    #     required=['task', 'status', 'personnel_engaged', 'site_id', 'date', 'shift', 'machinery_used','task_name'],
+    #     properties={
+    #         'site_id': openapi.Schema(type=openapi.TYPE_INTEGER, description="Site ID"),
+    #         'date': openapi.Schema(type=openapi.TYPE_STRING, description="Date (YYYY-MM-DD)"),
+    #         'shift': openapi.Schema(type=openapi.TYPE_STRING, description="Shift (Day/Night)"),
+    #         'task_name': openapi.Schema(type=openapi.TYPE_INTEGER, description="Task ID"),
+    #         'status': openapi.Schema(type=openapi.TYPE_STRING, description="Status (Complete, Incomplete, Partially Complete)"),
+    #         'personnel_engaged': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT), description="List of personnel"),
+    #         'machinery_used': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_STRING), description="Machinery used"),
+    #         'equipment_used': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_STRING), description="Equipment used"),
+    #         'personnel_idled': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT), description="List of idled personnel"),
+    #         'equipment_idled': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT), description="List of idled equipment"),
+    #         'reason_for_delay': openapi.Schema(type=openapi.TYPE_OBJECT, description="Reason for delay if Incomplete or Partially Complete"),
+    #         'latitude': openapi.Schema(type=openapi.TYPE_INTEGER, description="Latitude if delay occurred"),
+    #         'longitude': openapi.Schema(type=openapi.TYPE_INTEGER, description="Longitude if delay occurred"),
+    #         'photo': openapi.Schema(type=openapi.TYPE_FILE, description="Photo if delay occurred")
+    #     }
+    # ),
+    # responses={201: "Task report submitted successfully"}
+    # )
+
+    # def post(self, request):
+
+
+        # Extracting data from request
+        site_id = request.data.get("site_id")  # ✅ Ensure Site is provided
+        date = request.data.get("date")  # ✅ Ensure Date is provided
+        shift_name = request.data.get("shift")  # ✅ Ensure Shift is provided
+        task_id = request.data.get("task")
+        task_name = request.data.get("task_name")
+        status_choice = request.data.get("status")  # Complete / Incomplete / Partially Complete
+        personnel_engaged = request.data.get("personnel_engaged", [])  
+        machinery_used = request.data.get("machinery_used", [])  
+        equipment_used = request.data.get("equipment_used", [])  
+        personnel_idled = request.data.get("personnel_idled", [])  
+        equipment_idled = request.data.get("equipment_idled", [])  
+        reason_for_delay = request.data.get("reason_for_delay", {})
+        latitude = request.data.get("latitude")
+        longitude = request.data.get("longitude")
+        photo = request.FILES.get("photo")
+
         try:
-            shift_data = ShiftData.objects.get(id=serializer.validated_data['shift_data_id'])
-        except ShiftData.DoesNotExist:
-            return Response({"error": "Shift data not found"}, status=404)
+            # ✅ Validate Site
+            site = Site.objects.filter(id=site_id).first()
+            if not site:
+                return Response({"error": "Invalid Site ID"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Create task status
-        task_status = TaskStatus.objects.create(
-            shift_data=shift_data,
-            description=serializer.validated_data['description'],
-            status=serializer.validated_data['status']
-        )
+            # ✅ Validate Shift (Ensure Site + Date + Shift exist)
+            shift = Shift.objects.filter(site=site, date=date, shift=shift_name).first()
+            if not shift:
+                return Response({"error": "Invalid Shift for the given Site and Date"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Handle incomplete task evidence
-        if serializer.validated_data['status'] == 'incomplete':
-            required_fields = ['image', 'latitude', 'longitude']
-            missing_fields = [f for f in required_fields if f not in serializer.validated_data]
-            if missing_fields:
-                return Response({
-                    "error": f"Missing fields for incomplete task: {', '.join(missing_fields)}"
-            }, status=400)
-            IncompleteTaskEvidence.objects.create(
+            # ✅ Fetch Task by ID or Name (Ensure it belongs to this Shift)
+            if task_id:
+                task = Task.objects.filter(id=task_id, shift=shift).first()
+            elif task_name:
+                task = Task.objects.filter(name=task_name, shift=shift).first()
+            
+            if not task:
+                return Response({"error": "Task does not exist for this shift"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # ✅ Create TaskStatus Entry
+            task_status = TaskStatus.objects.create(task=task, status=status_choice, timestamp=now())
+
+            # ✅ Create TaskReport Entry
+            task_report = TaskReport.objects.create(
                 task_status=task_status,
-                image=serializer.validated_data['image'],
-                latitude=serializer.validated_data['latitude'],
-                longitude=serializer.validated_data['longitude'],
-                notes=serializer.validated_data.get('notes', '')
+                personnel_engaged=personnel_engaged,
+                machinery_used=machinery_used,  
+                equipment_used=equipment_used,
+                personnel_idled=personnel_idled,
+                equipment_idled=equipment_idled
             )
 
-        return Response({"message": "Task status recorded"}, status=201)
+            # ✅ Handle Incomplete or Partially Complete reasons
+            if status_choice in ["Incomplete", "Partially Complete"] and reason_for_delay:
+                # Convert Coordinates to Location
+                location_name = "Unknown Location"
+                if latitude and longitude:
+                    geolocator = Nominatim(user_agent="geoapiExercises")
+                    try:
+                        location_data = geolocator.reverse((latitude, longitude), exactly_one=True)
+                        location_name = location_data.address if location_data else "Unknown Location"
+                    except Exception:
+                        location_name = "Error retrieving location"
 
-class EnhancedShiftDataView(APIView):
-    def get(self, request, site_id):
-        current_date = date.today()
-        current_shift = get_current_shift()
-        
-        # Get original shift data
-        cache_key = f"site_{site_id}:{current_date}:{current_shift}:descriptions"
-        descriptions = cache.get(cache_key, [])
-        
-        # Get task statuses
-        task_statuses = TaskStatus.objects.filter(
-            shift_data__site_id=site_id,
-            shift_data__date=current_date,
-            shift_data__shift=current_shift
-        ).select_related('incompletetaskevidence')
-        
-        # Serialize data
-        status_data = []
-        for status in task_statuses:
-            entry = {
-                'description': status.description,
-                'status': status.status,
-                'timestamp': status.created_at
-            }
-            if status.status == 'incomplete':
-                evidence = status.incompletetaskevidence
-                entry.update({
-                    'image_url': request.build_absolute_uri(evidence.image.url),
-                    'coordinates': {
-                        'lat': float(evidence.latitude),
-                        'lng': float(evidence.longitude)
-                    },
-                    'notes': evidence.notes
-                })
-            status_data.append(entry)
-        
-        return Response({
-            "descriptions": descriptions,
-            "task_statuses": status_data
-        })
-        
-        
-class HeadcountView(APIView):
-    def post(self, request):
-        serializer = HeadcountCreateSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=400)
-        
-        try:
-            site = Site.objects.get(id=serializer.validated_data['site_id'])
-        except Site.DoesNotExist:
-            return Response({"error": "Site not found"}, status=404)
+                # Save Delay Details
+                ReasonForDelay.objects.create(
+                    task_report=task_report,
+                    reason=reason_for_delay.get("reason"),
+                    details=reason_for_delay.get("details"),
+                    latitude=latitude,
+                    longitude=longitude,
+                    location=location_name,
+                    time_reported=now(),
+                    photo=photo
+                )
 
-        # Default to current date and shift if not provided
-        date = serializer.validated_data.get('date') or timezone.now().date()
-        shift = serializer.validated_data.get('shift') or get_current_shift()
+            return Response({"message": "Task report submitted successfully!"}, status=status.HTTP_201_CREATED)
 
-        # Create or update headcount
-        obj, created = Headcount.objects.update_or_create(
-            site=site,
-            person_name=serializer.validated_data['person_name'].strip(),
-            date=date,
-            shift=shift,
-            defaults={'count': serializer.validated_data['count']}
-        )
-
-        return Response({
-            "message": "Headcount updated" if not created else "Headcount created",
-            "count": obj.count
-        }, status=201)
-
-    def get(self, request, site_id):
-        # Get parameters with defaults
-        req_date = request.query_params.get('date', str(timezone.now().date()))
-        shift = request.query_params.get('shift', get_current_shift())
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
+class ShiftPersonnelSubmissionView(generics.CreateAPIView):
+    queryset = ShiftSummary.objects.all()
+    serializer_class = ShiftSummarySerializer
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Submit Shift Personnel Data",
+        request=ShiftSummarySerializer,
+        responses={201: ShiftSummarySerializer, 400: "Bad Request", 500: "Internal Server Error"},
+    )
+    def create(self, request, *args, **kwargs):
+        site_id = request.data.get("site_id")
+        shift_name = request.data.get("shift")
+        date = request.data.get("date")
+        personnel_list = request.data.get("personnel_list", [])
+
         try:
             site = Site.objects.get(id=site_id)
-            headcounts = Headcount.objects.filter(
-                site=site,
-                date=req_date,
-                shift=shift
+            shift = Shift.objects.filter(site=site, date=date, shift=shift_name).first()
+            if not shift:
+                return Response({"error": "Shift not found for the given site and date"}, status=status.HTTP_400_BAD_REQUEST)
+
+            shift_summary, created = ShiftSummary.objects.update_or_create(
+                site=site, shift=shift, date=date,
+                defaults={"personnel_list": personnel_list}
             )
-            
-            # Aggregate counts by person
-            result = {}
-            for h in headcounts:
-                result[h.person_name] = result.get(h.person_name, 0) + h.count
-            
-            return Response({
-                "site_id": site_id,
-                "date": req_date,
-                "shift": shift,
-                "headcounts": result
-            })
-            
+
+            return Response(
+                {"message": "Shift personnel data submitted successfully!", "shift_summary_id": shift_summary.id},
+                status=status.HTTP_201_CREATED
+            )
         except Site.DoesNotExist:
-            return Response({"error": "Site not found"}, status=404)
+            return Response({"error": "Invalid Site ID"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class ShiftDetailsView(APIView):
+    def get(self, request, site_id, date, shift):
+        """
+        GET API to retrieve all tasks, machinery, task reports, personnel, 
+        and task completion status for a specific site, date, and shift.
+        """
+
+        # Ensure shift exists for the given site & date
+        shift_obj = Shift.objects.filter(site_id=site_id, date=date, shift=shift).first()
+        if not shift_obj:
+            return Response({"error": "Shift not found for the given site and date"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Retrieve all tasks for this shift
+        tasks = Task.objects.filter(shift=shift_obj)
+
+        # Prepare response data
+        shift_details = {
+            "site_id": site_id,
+            "date": date,
+            "shift": shift,
+            "tasks": []
+        }
+
+        # Loop through each task and get related reports
+        for task in tasks:
+            task_status = TaskStatus.objects.filter(task=task).first()
+            task_report = TaskReport.objects.filter(task_status=task_status).first()
+            reason_for_delay = ReasonForDelay.objects.filter(task_report=task_report).first()
+
+            task_data = {
+                "task_id": task.id,
+                "task_name": task.name,
+                "status": task_status.status if task_status else "Not Reported",  # ✅ Include status
+                "machinery_needed": list(task.machinery.all().values_list("name", flat=True)),  # List of machinery names
+                "report": {
+                    "personnel_engaged": task_report.personnel_engaged if task_report else [],
+                    "machinery_used": task_report.machinery_used if task_report else [],
+                    "equipment_used": task_report.equipment_used if task_report else [],
+                    "personnel_idled": task_report.personnel_idled if task_report else [],
+                    "equipment_idled": task_report.equipment_idled if task_report else [],
+                    "reason_for_delay": {
+                        "reason": reason_for_delay.reason if reason_for_delay else None,
+                        "details": reason_for_delay.details if reason_for_delay else None,
+                        "location": reason_for_delay.location if reason_for_delay else None,
+                        "photo": reason_for_delay.photo.url if reason_for_delay and reason_for_delay.photo else None,
+                        "time_reported": reason_for_delay.time_reported if reason_for_delay else None
+                    } if reason_for_delay else None
+                }
+            }
+
+            shift_details["tasks"].append(task_data)
+
+        # Get personnel list for the shift
+        shift_summary = ShiftSummary.objects.filter(site_id=site_id, shift=shift_obj, date=date).first()
+        shift_details["personnel_list"] = shift_summary.personnel_list if shift_summary else []
+
+        return Response(shift_details, status=status.HTTP_200_OK)
+    
+    

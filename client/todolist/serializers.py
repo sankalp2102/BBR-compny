@@ -1,49 +1,83 @@
 from rest_framework import serializers
-from .models import State, Site, ShiftData, TaskStatus, IncompleteTaskEvidence, Headcount
+from .models import State, Site, Shift, Task, Machinery, TaskStatus, TaskReport, ReasonForDelay, ShiftSummary
+from django.contrib.auth import get_user_model
 
 class StateSerializer(serializers.ModelSerializer):
     class Meta:
         model = State
-        fields = ['id', 'name']
+        fields = '__all__'
 
 class SiteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Site
-        fields = ['id', 'name', 'state']
+        fields = '__all__'
 
-class ShiftDataSerializer(serializers.ModelSerializer):
+
+class MachinerySerializer(serializers.ModelSerializer):
     class Meta:
-        model = ShiftData
-        exclude = ['created_at']
-        
-        
+        model = Machinery
+        fields = ['id', 'name']
+
+class TaskSerializer(serializers.ModelSerializer):
+    machinery = MachinerySerializer(many=True)  # Include machinery in task response
+
+    class Meta:
+        model = Task
+        fields = ['id', 'name', 'machinery']
+
 class TaskStatusSerializer(serializers.ModelSerializer):
     class Meta:
         model = TaskStatus
-        fields = ['id', 'description', 'status', 'created_at']
+        fields = '__all__'
 
-class IncompleteTaskEvidenceSerializer(serializers.ModelSerializer):
+class TaskReportSerializer(serializers.ModelSerializer):
     class Meta:
-        model = IncompleteTaskEvidence
-        fields = ['image', 'latitude', 'longitude', 'notes']
+        model = TaskReport
+        fields = '__all__'
 
-class TaskCreateSerializer(serializers.Serializer):
-    shift_data_id = serializers.IntegerField()
-    description = serializers.CharField()
-    status = serializers.ChoiceField(choices=['completed', 'incomplete'])
-    image = serializers.ImageField(required=False)
-    latitude = serializers.DecimalField(required=False, max_digits=9, decimal_places=6)
-    longitude = serializers.DecimalField(required=False, max_digits=9, decimal_places=6)
-    notes = serializers.CharField(required=False, allow_blank=True)
-    
-class HeadcountSerializer(serializers.ModelSerializer):
+    def validate_machinery_used(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError("machinery_used must be a list of text values.")
+        return value
+    def to_representation(self, instance):
+        """Ensure JSON fields return proper lists instead of strings."""
+        data = super().to_representation(instance)
+
+        # ✅ Ensure JSON fields are properly returned as lists
+        json_fields = ["personnel_engaged", "machinery_used", "equipment_used", "personnel_idled", "equipment_idled"]
+        for field in json_fields:
+            if isinstance(data[field], str):  # If stored as a string, convert it back to JSON
+                import json
+                data[field] = json.loads(data[field])
+
+        return data
+
+
+class ReasonForDelaySerializer(serializers.ModelSerializer):
     class Meta:
-        model = Headcount
-        fields = ['id', 'person_name', 'count', 'date', 'shift']
+        model = ReasonForDelay
+        fields = '__all__'
 
-class HeadcountCreateSerializer(serializers.Serializer):
-    site_id = serializers.IntegerField()
-    person_name = serializers.CharField(max_length=100)
-    count = serializers.IntegerField(min_value=1)
-    date = serializers.DateField(required=False)
-    shift = serializers.IntegerField(required=False)
+class ShiftSummarySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ShiftSummary
+        fields = '__all__'
+
+
+
+User = get_user_model()
+
+class UserRegisterSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True)
+
+    class Meta:
+        model = User
+        fields = ['username', 'password', 'role']
+
+    def create(self, validated_data):
+        user = User.objects.create_user(
+            username=validated_data['username'],
+            password=validated_data['password'],
+            role=validated_data['role']
+        )
+        return user
