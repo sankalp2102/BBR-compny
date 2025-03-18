@@ -26,13 +26,16 @@ class Shift(models.Model):
 
 class Machinery(models.Model):
     name = models.CharField(max_length=255)
-
+    time_from = models.TextField(max_length=255)
+    time_to = models.TextField(max_length=255)
+    
     def __str__(self):
         return self.name
 
 class Task(models.Model):
     shift = models.ForeignKey(Shift, on_delete=models.CASCADE)
     name = models.CharField(max_length=255)
+    type_of_work = models.CharField(max_length=255)
     machinery = models.ManyToManyField(Machinery, related_name="tasks")  # Allow multiple machinery
 
     def __str__(self):
@@ -109,3 +112,14 @@ class CustomUser(AbstractUser):
 
     def __str__(self):
         return f"{self.username} - {self.role}"
+
+class Quantity(models.Model):
+    material_name = models.CharField(max_length=255)
+    quantity = models.IntegerField()
+    shift = models.ForeignKey(Shift, on_delete=models.CASCADE)
+    
+    def __str__(self):
+        return f"{self.material_name} - {self.quantity}"
+    
+# class Reconcilation(models.Model):
+    

@@ -1,9 +1,9 @@
-from django.urls import path, re_path
+from django.urls import path
 from .views import (StateListView, SiteListView,
                      TaskListView,
                      ExcelUploadView, TaskSubmissionView,
                      ShiftPersonnelSubmissionView, ShiftDetailsView,
-                     UserRegisterView)
+                     UserRegisterView, QuantityCreateView)
 
 from django.conf import settings
 from django.conf.urls.static import static
@@ -45,6 +45,7 @@ urlpatterns = [
     path('tasks/<int:state_id>/<int:site_id>/<str:date>/<str:shift>/', TaskListView.as_view(), name='task-list'),#Get all tasks with machinery
     path('submit-report/', TaskSubmissionView.as_view(), name='submit-report'),
     path('submit-shift-personnel/', ShiftPersonnelSubmissionView.as_view(), name='submit-shift-personnel'),
+    path('submit-quantity/',QuantityCreateView.as_view(),name='submit-quantity'),
     path('get-all-data/<int:site_id>/<str:date>/<str:shift>/', ShiftDetailsView.as_view(), name='get-all-data'),
 
 ]

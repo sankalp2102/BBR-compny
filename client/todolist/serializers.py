@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import State, Site, Shift, Task, Machinery, TaskStatus, TaskReport, ReasonForDelay, ShiftSummary
+from .models import State, Site, Task, Machinery, TaskStatus, TaskReport, ReasonForDelay, ShiftSummary, Quantity
 from django.contrib.auth import get_user_model
 
 class StateSerializer(serializers.ModelSerializer):
@@ -16,7 +16,7 @@ class SiteSerializer(serializers.ModelSerializer):
 class MachinerySerializer(serializers.ModelSerializer):
     class Meta:
         model = Machinery
-        fields = ['id', 'name']
+        fields = ['id', 'name', 'time_from', 'time_to']
 
 class TaskSerializer(serializers.ModelSerializer):
     machinery = MachinerySerializer(many=True)  # Include machinery in task response
@@ -81,3 +81,8 @@ class UserRegisterSerializer(serializers.ModelSerializer):
             role=validated_data['role']
         )
         return user
+    
+class QuantitySerializer(serializers.Serializer):
+    class Meta:
+        model = Quantity
+        fields = '__all__'
