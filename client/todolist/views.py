@@ -1,6 +1,6 @@
 from rest_framework.generics import ListAPIView, CreateAPIView
-from .models import State, Site, Shift, Task, Machinery, TaskStatus, TaskReport, ReasonForDelay, ShiftSummary, Quantity
-from .serializers import StateSerializer, SiteSerializer, TaskSerializer, UserRegisterSerializer, ShiftSummarySerializer, QuantitySerializer
+from .models import State, Site, Shift, Task, Machinery, TaskStatus, TaskReport, ReasonForDelay, ShiftSummary, Quantity, Reconcilation, CustomUser
+from .serializers import StateSerializer, SiteSerializer, TaskSerializer, UserRegisterSerializer, ShiftSummarySerializer, QuantitySerializer, ReconcilationSerializer
 import pandas as pd
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -20,10 +20,9 @@ from datetime import datetime
 User = get_user_model()
 
 class UserRegisterView(CreateAPIView):
-    
-    queryset = User.objects.all()
+    queryset = CustomUser.objects.all()
     serializer_class = UserRegisterSerializer
-    permission_classes = [AllowAny]  # ✅ No authentication needed to register
+    permission_classes = [AllowAny]
     
 class IsOfficeOrCEO(BasePermission):
     def has_permission(self, request, view):
@@ -271,7 +270,7 @@ class ShiftDetailsView(APIView):
     def get(self, request, site_id, date, shift):
         """
         GET API to retrieve all tasks, machinery, task reports, personnel, 
-        task completion status, and quantity data for a specific site, date, and shift.
+        task completion status, quantity data, and reconciliation data for a specific site, date, and shift.
         """
 
         # Ensure shift exists for the given site & date
@@ -282,11 +281,27 @@ class ShiftDetailsView(APIView):
         # Retrieve all tasks for this shift
         tasks = Task.objects.filter(shift=shift_obj)
 
-        # Retrieve quantity data for this shift
+        # Retrieve quantity data
         quantities = Quantity.objects.filter(shift=shift_obj)
         quantity_data = [
             {"material_name": q.material_name, "quantity": q.quantity}
             for q in quantities
+        ]
+
+        # Retrieve reconciliation data
+        reconcilations = Reconcilation.objects.filter(shift=shift_obj)
+        reconcilation_data = [
+            {
+                "lot_no": r.lot_no,
+                "lot_no_date": r.lot_no_date,
+                "used": r.used,
+                "used_date": r.used_date,
+                "left": r.left,
+                "left_date": r.left_date,
+                "returned": r.returned,
+                "returned_date": r.returned_date
+            }
+            for r in reconcilations
         ]
 
         # Prepare response data
@@ -295,7 +310,8 @@ class ShiftDetailsView(APIView):
             "date": date,
             "shift": shift,
             "tasks": [],
-            "quantities": quantity_data
+            "quantities": quantity_data,
+            "reconcilations": reconcilation_data
         }
 
         # Loop through each task and get related reports
@@ -332,6 +348,7 @@ class ShiftDetailsView(APIView):
         shift_details["personnel_list"] = shift_summary.personnel_list if shift_summary else []
 
         return Response(shift_details, status=status.HTTP_200_OK)
+
     
 
 class QuantityCreateView(generics.CreateAPIView):
@@ -374,3 +391,50 @@ class QuantityCreateView(generics.CreateAPIView):
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ReconcilationCreateView(generics.CreateAPIView):
+    serializer_class = ReconcilationSerializer
+
+    def create(self, request, *args, **kwargs):
+        site_id = request.data.get('site_id')
+        date = request.data.get('date')
+        shift_name = request.data.get('shift')
+
+        # Validate Site and Shift
+        try:
+            site = Site.objects.get(id=site_id)
+            shift = Shift.objects.get(site=site, date=date, shift=shift_name)
+        except (Site.DoesNotExist, Shift.DoesNotExist):
+            return Response({"error": "Invalid Site ID, Date, or Shift"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Extract data from request
+        lot_no = request.data.get('lot_no')
+        lot_no_date = request.data.get('lot_no_date')
+        used = request.data.get('used')
+        used_date = request.data.get('used_date')
+        left = request.data.get('left')
+        left_date = request.data.get('left_date')
+        returned = request.data.get('returned')
+        returned_date = request.data.get('returned_date')
+
+        # Validate required fields
+        if not all([lot_no, lot_no_date, used, used_date, left, left_date, returned, returned_date]):
+            return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Save Data
+        reconciliation = Reconcilation.objects.create(
+            shift=shift,
+            lot_no=lot_no,
+            lot_no_date=lot_no_date,
+            used=used,
+            used_date=used_date,
+            left=left,
+            left_date=left_date,
+            returned=returned,
+            returned_date=returned_date
+        )
+
+        serializer = self.get_serializer(reconciliation)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
