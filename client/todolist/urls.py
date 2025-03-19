@@ -3,7 +3,9 @@ from .views import (StateListView, SiteListView,
                      TaskListView,
                      ExcelUploadView, TaskSubmissionView,
                      ShiftPersonnelSubmissionView,UserRegisterView, 
-                     QuantityCreateView, ReconcilationCreateView, ShiftDetailsView)
+                     QuantityCreateView, ReconcilationCreateView,
+                     ShiftDetailsView, CompletedTasksListView,
+                     IncompleteTasksListView)
 
 from django.conf import settings
 from django.conf.urls.static import static
@@ -45,6 +47,8 @@ urlpatterns = [
     path('submit-quantity/',QuantityCreateView.as_view(),name='submit-quantity'),
     path('submit-reconciliation/',ReconcilationCreateView.as_view(),name='submit-reconciliation'),
     path('get-all-data/<int:site_id>/<str:date>/<str:shift>/', ShiftDetailsView.as_view(), name='get-all-data'),
+    path('completed-tasks/<int:site_id>/<str:date>/<str:shift>/', CompletedTasksListView.as_view(), name='completed-tasks'),
+    path('incomplete-tasks/<int:site_id>/', IncompleteTasksListView.as_view(), name='incomplete-tasks'),
 
 ]
 

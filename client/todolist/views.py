@@ -438,3 +438,42 @@ class ReconcilationCreateView(generics.CreateAPIView):
         serializer = self.get_serializer(reconciliation)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+class CompletedTasksListView(generics.ListAPIView):
+    serializer_class = TaskSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        site_id = self.kwargs['site_id']
+        date = self.kwargs['date']
+        shift_name = self.kwargs['shift']
+
+        # Ensure shift exists
+        shift_obj = Shift.objects.filter(site_id=site_id, date=date, shift=shift_name).first()
+        if not shift_obj:
+            return Task.objects.none()
+
+        # Fetch completed tasks using related TaskStatus
+        completed_task_ids = TaskStatus.objects.filter(
+            task__shift=shift_obj,
+            status="Complete"
+        ).values_list('task_id', flat=True)
+
+        return Task.objects.filter(id__in=completed_task_ids).prefetch_related('machinery')
+    
+class IncompleteTasksListView(generics.ListAPIView):
+    serializer_class = TaskSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        site_id = self.kwargs['site_id']
+
+        # Fetch shifts associated with the site
+        shifts = Shift.objects.filter(site_id=site_id)
+
+        # Fetch task IDs that are Incomplete or Partially Complete
+        incomplete_task_ids = TaskStatus.objects.filter(
+            task__shift__in=shifts,
+            status__in=["Incomplete", "Partially Complete"]
+        ).values_list('task_id', flat=True)
+
+        return Task.objects.filter(id__in=incomplete_task_ids).prefetch_related('machinery')
