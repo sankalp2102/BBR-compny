@@ -46,7 +46,6 @@ class TaskListView(ListAPIView):
     serializer_class = TaskSerializer
 
     def get_queryset(self):
-        state_id = self.kwargs['state_id']
         site_id = self.kwargs['site_id']
         date = self.kwargs['date']
         shift = self.kwargs['shift']
@@ -64,6 +63,7 @@ class TaskListView(ListAPIView):
 
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
     
 class ExcelUploadView(APIView):
     parser_classes = (MultiPartParser, FormParser)
