@@ -26,13 +26,16 @@ class Shift(models.Model):
 
 class Machinery(models.Model):
     name = models.CharField(max_length=255)
-
+    time_from = models.TextField(max_length=255)
+    time_to = models.TextField(max_length=255)
+    
     def __str__(self):
         return self.name
 
 class Task(models.Model):
     shift = models.ForeignKey(Shift, on_delete=models.CASCADE)
     name = models.CharField(max_length=255)
+    type_of_work = models.CharField(max_length=255)
     machinery = models.ManyToManyField(Machinery, related_name="tasks")  # Allow multiple machinery
 
     def __str__(self):
@@ -46,7 +49,7 @@ class TaskStatus(models.Model):
         ('Partially Complete', 'Partially Complete'),
     ]
     task = models.ForeignKey(Task, on_delete=models.CASCADE)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Incomplete')
     timestamp = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -95,6 +98,7 @@ USER_ROLES = (
 
 class CustomUser(AbstractUser):
     role = models.CharField(max_length=20, choices=USER_ROLES, default='Technician')
+    assigned_sites = models.ManyToManyField(Site, blank=True)
 
     groups = models.ManyToManyField(
         "auth.Group",
@@ -109,3 +113,25 @@ class CustomUser(AbstractUser):
 
     def __str__(self):
         return f"{self.username} - {self.role}"
+
+class Quantity(models.Model):
+    material_name = models.CharField(max_length=255)
+    quantity = models.IntegerField()
+    shift = models.ForeignKey(Shift, on_delete=models.CASCADE)
+    
+    def __str__(self):
+        return f"{self.material_name} - {self.quantity}"
+    
+class Reconcilation(models.Model):
+    shift = models.ForeignKey(Shift, on_delete=models.CASCADE)
+    lot_no = models.CharField(max_length=255)
+    lot_no_date = models.CharField(max_length=255)
+    used = models.IntegerField()
+    used_date = models.CharField(max_length=255)
+    left = models.IntegerField()
+    left_date = models.CharField(max_length=255)
+    returned = models.IntegerField()
+    returned_date = models.CharField(max_length=255)
+    
+    def __str__(self):
+        return self.name

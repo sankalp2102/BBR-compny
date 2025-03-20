@@ -1,9 +1,11 @@
-from django.urls import path, re_path
+from django.urls import path
 from .views import (StateListView, SiteListView,
                      TaskListView,
                      ExcelUploadView, TaskSubmissionView,
-                     ShiftPersonnelSubmissionView, ShiftDetailsView,
-                     UserRegisterView)
+                     ShiftPersonnelSubmissionView,UserRegisterView, 
+                     QuantityCreateView, ReconcilationCreateView,
+                     ShiftDetailsView, CompletedTasksListView,
+                     IncompleteTasksListView)
 
 from django.conf import settings
 from django.conf.urls.static import static
@@ -20,9 +22,6 @@ schema_view = get_schema_view(
         title="Task Management API",
         default_version='v1',
         description="API documentation for task management system",
-        terms_of_service="https://www.example.com/terms/",
-        contact=openapi.Contact(email="developer@example.com"),
-        license=openapi.License(name="MIT License"),
     ),
     public=True,
     authentication_classes=[],  # ✅ Remove authentication for Swagger UI
@@ -45,7 +44,11 @@ urlpatterns = [
     path('tasks/<int:state_id>/<int:site_id>/<str:date>/<str:shift>/', TaskListView.as_view(), name='task-list'),#Get all tasks with machinery
     path('submit-report/', TaskSubmissionView.as_view(), name='submit-report'),
     path('submit-shift-personnel/', ShiftPersonnelSubmissionView.as_view(), name='submit-shift-personnel'),
+    path('submit-quantity/',QuantityCreateView.as_view(),name='submit-quantity'),
+    path('submit-reconciliation/',ReconcilationCreateView.as_view(),name='submit-reconciliation'),
     path('get-all-data/<int:site_id>/<str:date>/<str:shift>/', ShiftDetailsView.as_view(), name='get-all-data'),
+    path('completed-tasks/<int:site_id>/<str:date>/<str:shift>/', CompletedTasksListView.as_view(), name='completed-tasks'),
+    path('incomplete-tasks/<int:site_id>/', IncompleteTasksListView.as_view(), name='incomplete-tasks'),
 
 ]
 

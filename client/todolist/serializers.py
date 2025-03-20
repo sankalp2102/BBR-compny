@@ -1,5 +1,9 @@
 from rest_framework import serializers
-from .models import State, Site, Shift, Task, Machinery, TaskStatus, TaskReport, ReasonForDelay, ShiftSummary
+from .models import (State, Site, Task,
+                     Machinery, TaskStatus,
+                     TaskReport, ReasonForDelay,
+                     ShiftSummary, Quantity,
+                     Reconcilation, CustomUser)
 from django.contrib.auth import get_user_model
 
 class StateSerializer(serializers.ModelSerializer):
@@ -16,7 +20,7 @@ class SiteSerializer(serializers.ModelSerializer):
 class MachinerySerializer(serializers.ModelSerializer):
     class Meta:
         model = Machinery
-        fields = ['id', 'name']
+        fields = ['id', 'name', 'time_from', 'time_to']
 
 class TaskSerializer(serializers.ModelSerializer):
     machinery = MachinerySerializer(many=True)  # Include machinery in task response
@@ -69,15 +73,29 @@ User = get_user_model()
 
 class UserRegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
-
+    site_ids = serializers.ListField(child=serializers.IntegerField(), required=False)
+    
     class Meta:
         model = User
-        fields = ['username', 'password', 'role']
+        fields = ['username', 'password', 'role', 'site_ids']
 
     def create(self, validated_data):
-        user = User.objects.create_user(
-            username=validated_data['username'],
-            password=validated_data['password'],
-            role=validated_data['role']
-        )
+        site_ids = validated_data.pop('site_ids', [])
+        user = CustomUser.objects.create_user(**validated_data)
+
+        # If the role is Technician, assign sites
+        if user.role == 'Technician':
+            sites = Site.objects.filter(id__in=site_ids)
+            user.assigned_sites.set(sites)
+        
         return user
+    
+class QuantitySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Quantity
+        fields = '__all__'
+        
+class ReconcilationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Reconcilation
+        fields = '__all__'
