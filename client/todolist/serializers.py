@@ -5,6 +5,7 @@ from .models import (State, Site, Task,
                      ShiftSummary, Quantity,
                      Reconcilation, CustomUser)
 from django.contrib.auth import get_user_model
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 class StateSerializer(serializers.ModelSerializer):
     class Meta:
@@ -16,6 +17,8 @@ class SiteSerializer(serializers.ModelSerializer):
         model = Site
         fields = '__all__'
 
+class BooleanSerializer(serializers.Serializer):
+    value = serializers.BooleanField()
 
 class MachinerySerializer(serializers.ModelSerializer):
     class Meta:
@@ -89,6 +92,21 @@ class UserRegisterSerializer(serializers.ModelSerializer):
             user.assigned_sites.set(sites)
         
         return user
+    
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    def validate(self, attrs):
+        # Get the default token response
+        data = super().validate(attrs)
+
+        # Add custom fields to the response
+        user = self.user
+        data['user'] = {
+            'username': user.username,
+            'role': user.role,
+            'site_ids': list(user.assigned_sites.values_list('id', flat=True))  # Include site IDs
+        }
+
+        return data
     
 class QuantitySerializer(serializers.ModelSerializer):
     class Meta:

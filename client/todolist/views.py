@@ -1,6 +1,6 @@
-from rest_framework.generics import ListAPIView, CreateAPIView
+from rest_framework.generics import ListAPIView, CreateAPIView, UpdateAPIView
 from .models import State, Site, Shift, Task, Machinery, TaskStatus, TaskReport, ReasonForDelay, ShiftSummary, Quantity, Reconcilation, CustomUser
-from .serializers import StateSerializer, SiteSerializer, TaskSerializer, UserRegisterSerializer, ShiftSummarySerializer, QuantitySerializer, ReconcilationSerializer
+from .serializers import StateSerializer, SiteSerializer, TaskSerializer, UserRegisterSerializer, ShiftSummarySerializer, QuantitySerializer, ReconcilationSerializer, CustomTokenObtainPairSerializer, BooleanSerializer
 import pandas as pd
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -15,7 +15,7 @@ from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
 import re
 from datetime import datetime
-
+from rest_framework_simplejwt.views import TokenObtainPairView
 
 User = get_user_model()
 
@@ -23,6 +23,9 @@ class UserRegisterView(CreateAPIView):
     queryset = CustomUser.objects.all()
     serializer_class = UserRegisterSerializer
     permission_classes = [AllowAny]
+    
+class CustomTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer
     
 class IsOfficeOrCEO(BasePermission):
     def has_permission(self, request, view):
@@ -64,6 +67,14 @@ class TaskListView(ListAPIView):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+class BooleanUpdateView(UpdateAPIView):
+    serializer_class = BooleanSerializer
+
+    def put(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        value = serializer.validated_data['value']
+        return Response({"value": value}, status=status.HTTP_200_OK)
     
 class ExcelUploadView(APIView):
     parser_classes = (MultiPartParser, FormParser)

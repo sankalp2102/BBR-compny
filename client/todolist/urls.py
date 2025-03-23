@@ -5,14 +5,14 @@ from .views import (StateListView, SiteListView,
                      ShiftPersonnelSubmissionView,UserRegisterView, 
                      QuantityCreateView, ReconcilationCreateView,
                      ShiftDetailsView, CompletedTasksListView,
-                     IncompleteTasksListView)
+                     IncompleteTasksListView, CustomTokenObtainPairView, BooleanUpdateView)
 
 from django.conf import settings
 from django.conf.urls.static import static
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 from rest_framework.permissions import AllowAny
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.views import TokenRefreshView
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
 
@@ -35,7 +35,7 @@ urlpatterns = [
     path('redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
     
     path('register/', UserRegisterView.as_view(), name='register'),
-    path('login/', TokenObtainPairView.as_view(), name='login'),
+    path('login/', CustomTokenObtainPairView.as_view(), name='login'),  # Use custom login view
     path('refresh/', TokenRefreshView.as_view(), name='refresh-token'),
     
     path('upload-excel/', ExcelUploadView.as_view(), name='upload-excel'),
@@ -43,6 +43,7 @@ urlpatterns = [
     path('sites/<int:state_id>/', SiteListView.as_view(), name='site-list'),#Get sites according to states
     path('tasks/<int:site_id>/<str:date>/<str:shift>/', TaskListView.as_view(), name='task-list'),#Get all tasks with machinery
     path('submit-report/', TaskSubmissionView.as_view(), name='submit-report'),
+    path('locking-api/', BooleanUpdateView.as_view(), name='update-boolean'),
     path('submit-shift-personnel/', ShiftPersonnelSubmissionView.as_view(), name='submit-shift-personnel'),
     path('submit-quantity/',QuantityCreateView.as_view(),name='submit-quantity'),
     path('submit-reconciliation/',ReconcilationCreateView.as_view(),name='submit-reconciliation'),
