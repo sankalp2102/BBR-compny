@@ -289,36 +289,18 @@ class ShiftPersonnelSubmissionView(generics.CreateAPIView):
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+
 class ShiftDataView(APIView):
     def get(self, request, site_id, date, shift):
-        """
-        GET API to retrieve all shift-related data including planned work, executed work,
-        partially completed tasks, incomplete tasks, and material reconciliation.
-        """
         try:
-            # Ensure shift exists
+            # Validate Shift
             shift_obj = Shift.objects.filter(site_id=site_id, date=date, shift=shift).first()
             if not shift_obj:
                 return Response({"error": "Shift not found for the given site and date"}, status=status.HTTP_404_NOT_FOUND)
 
-            # Fetch General Data
-            # shift_summary = ShiftSummary.objects.filter(site_id=site_id, shift=shift_obj, date=date).first()
-            # general_data = {
-            #     "work_order_no": getattr(shift_obj, 'work_order_no', "N/A"),
-            #     "project_name": getattr(shift_obj, 'project_name', "N/A"),
-            #     "contractor": getattr(shift_obj, 'contractor', "N/A"),
-            #     "client": getattr(shift_obj, 'client', "N/A"),
-            #     "date": str(date),
-            #     "shift": shift,
-            #     "time_from": str(getattr(shift_obj, 'time_from', "N/A")),
-            #     "time_to": str(getattr(shift_obj, 'time_to', "N/A"))
-            # }
-
-            # Planned Work
-            tasks = Task.objects.filter(shift=shift_obj)
-            planned_work = []
-            for task in tasks:
-                machinery_data = [
+            # Helper Function to Fetch Machinery Data
+            def get_machinery_data(task):
+                return [
                     {
                         "name": machinery.name,
                         "number": machinery.number,
@@ -328,101 +310,111 @@ class ShiftDataView(APIView):
                     for machinery in task.machinery.all()
                 ]
 
-                planned_work.append({
-                    "task": task.name,
-                    "machinery": machinery_data,
-                    "total_labourers": getattr(task, 'total_labourers', "N/A"),
-                    "total_staff": getattr(task, 'total_staff', "N/A")
-                })
+            # Helper Function to Fetch Equipment Data
+            def get_equipment_data(task_report, field_name):
+                return [
+                    {"name": item.get("name", "N/A"), "number": item.get("number", 0)}
+                    for item in (getattr(task_report, field_name, []) or [])
+                ]
 
-            # **Executed Work - Using Planned Data**
-            executed_work = [
+            # Helper Function to Fetch Personnel Data
+            def get_personnel_data(task_report, field_name):
+                return [
+                    {"role": person.get("role", "N/A"), "count": person.get("count", 0)}
+                    for person in (getattr(task_report, field_name, []) or [])
+                ]
+
+            # Planned Work
+            tasks = Task.objects.filter(shift=shift_obj)
+            planned_work = [
                 {
                     "task": task.name,
-                    "machinery_provided": machinery_data,
-                    "personnel_deployed": {
-                        "labour": getattr(task, 'executed_labour', "N/A"),
-                        "staff": getattr(task, 'executed_staff', "N/A")
-                    },
-                    "equipment_deployed": [
-                        {
-                            "name": equipment.name,
-                            "number": equipment.number
-                        }
-                        for equipment in getattr(task, 'equipment_used', [])
-                    ]
+                    "machinery": get_machinery_data(task),
+                    "total_labourers": getattr(task, 'total_labourers', "N/A"),
+                    "total_staff": getattr(task, 'total_staff', "N/A")
                 }
-                for task in tasks if getattr(task, 'status', '') == "Complete"
+                for task in tasks
             ]
 
-            # **Partially Completed Tasks - Using Planned Data**
-            partially_complete_tasks = []
-            for task in tasks.filter(status="Partially Complete"):
-                reason_for_delay = ReasonForDelay.objects.filter(task_report__task_status__task=task).first()
-                partially_complete_tasks.append({
+            # Executed Work (Complete Status)
+            executed_tasks = Task.objects.filter(shift=shift_obj, taskstatus__status="Complete")
+            executed_work = []
+            for task in executed_tasks:
+                task_report = TaskReport.objects.filter(task_status__task=task).first()
+                executed_work.append({
                     "task": task.name,
-                    "machinery_provided": machinery_data,
+                    "machinery_provided": get_machinery_data(task),
+                    "personnel_deployed": 
+                         get_personnel_data(task_report, 'personnel_engaged')
+                    ,
+                    "equipment_deployed": get_equipment_data(task_report, 'equipment_used')
+                })
+
+            # Partially Completed Tasks
+            partially_complete_tasks = Task.objects.filter(shift=shift_obj, taskstatus__status="Partially Complete")
+            partially_completed = []
+            for task in partially_complete_tasks:
+                task_report = TaskReport.objects.filter(task_status__task=task).first()
+                reason_for_delay = ReasonForDelay.objects.filter(task_report=task_report).first()
+
+                partially_completed.append({
+                    "task": task.name,
+                    "machinery_provided": get_machinery_data(task),
                     "personnel_deployed": {
-                        "labour": getattr(task, 'executed_labour', "N/A"),
-                        "staff": getattr(task, 'executed_staff', "N/A"),
-                        "idled_labour": getattr(task, 'idled_labour', "N/A"),
-                        "idled_staff": getattr(task, 'idled_staff', "N/A")
+                        "labour": get_personnel_data(task_report, 'personnel_engaged'),
+                        "staff": get_personnel_data(task_report, 'personnel_engaged'),
+                        "idled_labour": get_personnel_data(task_report, 'personnel_idled'),
+                        "idled_staff": get_personnel_data(task_report, 'personnel_idled'),
                     },
-                    "equipment_deployed": [
-                        {"name": e.name, "number": e.number}
-                        for e in getattr(task, 'equipment_used', [])
-                    ],
-                    "idled_equipment": [
-                        {"name": e.name, "number": e.number}
-                        for e in getattr(task, 'equipment_idled', [])
-                    ],
+                    "equipment_deployed": get_equipment_data(task_report, 'equipment_used'),
+                    "idled_equipment": get_equipment_data(task_report, 'equipment_idled'),
                     "reason_for_partial_completion": getattr(reason_for_delay, 'reason', "N/A"),
                     "supporting_document": reason_for_delay.photo.url if reason_for_delay and reason_for_delay.photo else "N/A"
                 })
 
-            # **Incomplete Tasks - Using Planned Data**
-            incomplete_tasks = []
-            for task in tasks.filter(status="Incomplete"):
-                reason_for_delay = ReasonForDelay.objects.filter(task_report__task_status__task=task).first()
-                incomplete_tasks.append({
+            # Incomplete Tasks
+            incomplete_tasks = Task.objects.filter(shift=shift_obj, taskstatus__status="Incomplete")
+            incomplete_data = []
+            for task in incomplete_tasks:
+                task_report = TaskReport.objects.filter(task_status__task=task).first()
+                reason_for_delay = ReasonForDelay.objects.filter(task_report=task_report).first()
+
+                incomplete_data.append({
                     "task": task.name,
-                    "machinery_provided": machinery_data,
+                    "machinery_provided": get_machinery_data(task),
                     "scheduled_for": str(task.shift.date),
                     "idling": {
-                        "labour": getattr(task, 'idled_labour', "N/A"),
-                        "staff": getattr(task, 'idled_staff', "N/A"),
-                        "equipment": [
-                            {"name": e.name, "number": e.number}
-                            for e in getattr(task, 'equipment_idled', [])
-                        ]
+                        "labour": get_personnel_data(task_report, 'personnel_idled'),
+                        "staff": get_personnel_data(task_report, 'personnel_idled'),
+                        "equipment": get_equipment_data(task_report, 'equipment_idled')
                     },
                     "reason_for_task_not_completed": getattr(reason_for_delay, 'reason', "N/A"),
                     "supporting_document": reason_for_delay.photo.url if reason_for_delay and reason_for_delay.photo else "N/A"
                 })
-
-            # **Material Reconciliation**
-            reconcilation_data = []
-            reconcilations = Reconcilation.objects.filter(shift=shift_obj)
-            for r in reconcilations:
-                reconcilation_data.append({
-                    "coil_lot_no": r.lot_no,
-                    "lot_date": str(r.lot_no_date),
-                    "used_qty": r.used,
-                    "used_date": str(r.used_date),
-                    "left_qty": r.left,
-                    "left_date": str(r.left_date),
-                    "returned_qty": r.returned,
-                    "returned_date": str(r.returned_date)
-                })
+                
+            # Material Reconciliation Data
+            reconciliation_data = Reconcilation.objects.filter(shift=shift_obj)
+            material_reconciliation = [
+                {
+                    "lot_no": recon.lot_no,
+                    "lot_no_date": str(recon.lot_no_date),
+                    "used": recon.used,
+                    "used_date": str(recon.used_date),
+                    "left": recon.left,
+                    "left_date": str(recon.left_date),
+                    "returned": recon.returned,
+                    "returned_date": str(recon.returned_date),
+                }
+                for recon in reconciliation_data
+            ]
 
             # Final Response
             response_data = {
-                # "general": general_data,
                 "planned_work": planned_work,
                 "executed_work": executed_work,
-                "partially_complete_tasks": partially_complete_tasks,
-                "incomplete_tasks": incomplete_tasks,
-                "material_reconciliation": reconcilation_data
+                "partially_complete_tasks": partially_completed,
+                "incomplete_tasks": incomplete_data,
+                "material_reconciliation": material_reconciliation
             }
 
             return Response(response_data, status=status.HTTP_200_OK)
