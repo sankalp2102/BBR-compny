@@ -23,7 +23,7 @@ class BooleanSerializer(serializers.Serializer):
 class MachinerySerializer(serializers.ModelSerializer):
     class Meta:
         model = Machinery
-        fields = ['id', 'name', 'time_from', 'time_to']
+        fields = ['id', 'name', 'time_from', 'time_to', 'number']
 
 class TaskSerializer(serializers.ModelSerializer):
     machinery = MachinerySerializer(many=True)  # Include machinery in task response
@@ -117,3 +117,4 @@ class ReconcilationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Reconcilation
         fields = '__all__'
+        

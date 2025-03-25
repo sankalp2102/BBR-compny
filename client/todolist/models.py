@@ -26,6 +26,7 @@ class Shift(models.Model):
 
 class Machinery(models.Model):
     name = models.CharField(max_length=255)
+    number = models.IntegerField(default=1)
     time_from = models.TextField(max_length=255)
     time_to = models.TextField(max_length=255)
     

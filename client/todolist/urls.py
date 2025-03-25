@@ -4,7 +4,7 @@ from .views import (StateListView, SiteListView,
                      ExcelUploadView, TaskSubmissionView,
                      ShiftPersonnelSubmissionView,UserRegisterView, 
                      QuantityCreateView, ReconcilationCreateView,
-                     ShiftDetailsView, CompletedTasksListView,
+                     ShiftDataView, CompletedTasksListView,
                      IncompleteTasksListView, CustomTokenObtainPairView, BooleanUpdateView)
 
 from django.conf import settings
@@ -47,7 +47,7 @@ urlpatterns = [
     path('submit-shift-personnel/', ShiftPersonnelSubmissionView.as_view(), name='submit-shift-personnel'),
     path('submit-quantity/',QuantityCreateView.as_view(),name='submit-quantity'),
     path('submit-reconciliation/',ReconcilationCreateView.as_view(),name='submit-reconciliation'),
-    path('get-all-data/<int:site_id>/<str:date>/<str:shift>/', ShiftDetailsView.as_view(), name='get-all-data'),
+    path('get-all-data/<int:site_id>/<str:date>/<str:shift>/', ShiftDataView.as_view(), name='get-all-data'),
     path('completed-tasks/<int:site_id>/<str:date>/<str:shift>/', CompletedTasksListView.as_view(), name='completed-tasks'),
     path('incomplete-tasks/<int:site_id>/', IncompleteTasksListView.as_view(), name='incomplete-tasks'),
 

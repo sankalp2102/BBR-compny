@@ -87,9 +87,7 @@ class ExcelUploadView(APIView):
 
         try:
             df = pd.read_excel(file)
-
-            # Regex pattern to extract machinery name and time
-            pattern = r"([\w\s]+)\((\d{2}:\d{2})-(\d{2}:\d{2})\)"
+            pattern = r"([\w\s]+)\((\d{2}:\d{2})-(\d{2}:\d{2})\)\s*-\s*(\d+)"
 
             for index, row in df.iterrows():
                 # Ensure state exists
@@ -114,14 +112,14 @@ class ExcelUploadView(APIView):
                 # Process machinery using regex
                 machinery_data = str(row['Machinery'])
                 machinery_objects = []
-
                 matches = re.findall(pattern, machinery_data)
 
                 if not matches:
                     return Response({"error": f"Invalid machinery format at row {index + 2}"}, status=status.HTTP_400_BAD_REQUEST)
 
                 for match in matches:
-                    machinery_name, time_from_str, time_to_str = match
+                    machinery_name, time_from_str, time_to_str, machine_number_str = match
+                    machine_number = int(machine_number_str)
 
                     # Convert time strings to time objects
                     try:
@@ -130,16 +128,22 @@ class ExcelUploadView(APIView):
                     except ValueError:
                         return Response({"error": f"Invalid time format at row {index + 2}"}, status=status.HTTP_400_BAD_REQUEST)
 
-                    # Ensure machinery exists
-                    machinery, _ = Machinery.objects.get_or_create(
+                    # Ensure machinery exists or create it
+                    machinery, created = Machinery.objects.get_or_create(
                         name=machinery_name,
-                        defaults={'time_from': time_from_str, 'time_to': time_to_str}
+                        defaults={
+                            'time_from': time_from,
+                            'time_to': time_to,
+                            'number': machine_number
+                        }
                     )
 
-                    # Update time if necessary
-                    machinery.time_from = time_from_str
-                    machinery.time_to = time_to_str
-                    machinery.save()
+                    # Update machinery details if necessary
+                    if not created:
+                        machinery.time_from = time_from
+                        machinery.time_to = time_to
+                        machinery.number = machine_number
+                        machinery.save()
 
                     machinery_objects.append(machinery)
 
@@ -156,8 +160,7 @@ class TaskSubmissionView(APIView):
         """
         API to handle task submission based on its status.
         """
-
-
+        
         site_id = request.data.get("site_id")  
         date = request.data.get("date")  
         shift_name = request.data.get("shift")  
@@ -176,17 +179,17 @@ class TaskSubmissionView(APIView):
         photo = request.FILES.get("photo")
 
         try:
-
+            #  Validate Site
             site = Site.objects.filter(id=site_id).first()
             if not site:
                 return Response({"error": "Invalid Site ID"}, status=status.HTTP_400_BAD_REQUEST)
 
-
+            #  Validate Shift
             shift = Shift.objects.filter(site=site, date=date, shift=shift_name).first()
             if not shift:
                 return Response({"error": "Invalid Shift for the given Site and Date"}, status=status.HTTP_400_BAD_REQUEST)
 
-
+            #  Validate Task
             if task_id:
                 task = Task.objects.filter(id=task_id, shift=shift).first()
             elif task_name:
@@ -194,25 +197,33 @@ class TaskSubmissionView(APIView):
             
             if not task:
                 return Response({"error": "Task does not exist for this shift"}, status=status.HTTP_400_BAD_REQUEST)
-            
+
             if type_of_work:
                 task.type_of_work = type_of_work
                 task.save()
 
-
+            #  Create Task Status
             task_status = TaskStatus.objects.create(task=task, status=status_choice, timestamp=now())
 
+            #  Extract Equipment with Name and Number
+            def extract_equipment_data(equipment_list):
+                return [{"name": eq.get("name"), "number": eq.get("number", 1)} for eq in equipment_list]
 
+            machinery_used = extract_equipment_data(machinery_used)
+            equipment_used = extract_equipment_data(equipment_used)
+            equipment_idled = extract_equipment_data(equipment_idled)
+
+            #  Create Task Report
             task_report = TaskReport.objects.create(
                 task_status=task_status,
                 personnel_engaged=personnel_engaged,
-                machinery_used=machinery_used,  
+                machinery_used=machinery_used,
                 equipment_used=equipment_used,
                 personnel_idled=personnel_idled,
                 equipment_idled=equipment_idled
             )
 
-
+            #  Handle Reason for Delay (For Incomplete or Partially Complete Tasks)
             if status_choice in ["Incomplete", "Partially Complete"] and reason_for_delay:
 
                 location_name = "Unknown Location"
@@ -223,7 +234,6 @@ class TaskSubmissionView(APIView):
                         location_name = location_data.address if location_data else "Unknown Location"
                     except Exception:
                         location_name = "Error retrieving location"
-
 
                 ReasonForDelay.objects.create(
                     task_report=task_report,
@@ -240,6 +250,7 @@ class TaskSubmissionView(APIView):
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
             
 class ShiftPersonnelSubmissionView(generics.CreateAPIView):
     queryset = ShiftSummary.objects.all()
@@ -277,88 +288,149 @@ class ShiftPersonnelSubmissionView(generics.CreateAPIView):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-class ShiftDetailsView(APIView):
+
+class ShiftDataView(APIView):
     def get(self, request, site_id, date, shift):
         """
-        GET API to retrieve all tasks, machinery, task reports, personnel, 
-        task completion status, quantity data, and reconciliation data for a specific site, date, and shift.
+        GET API to retrieve all shift-related data including planned work, executed work,
+        partially completed tasks, incomplete tasks, and material reconciliation.
         """
+        try:
+            # Ensure shift exists
+            shift_obj = Shift.objects.filter(site_id=site_id, date=date, shift=shift).first()
+            if not shift_obj:
+                return Response({"error": "Shift not found for the given site and date"}, status=status.HTTP_404_NOT_FOUND)
 
-        # Ensure shift exists for the given site & date
-        shift_obj = Shift.objects.filter(site_id=site_id, date=date, shift=shift).first()
-        if not shift_obj:
-            return Response({"error": "Shift not found for the given site and date"}, status=status.HTTP_404_NOT_FOUND)
+            # Fetch General Data
+            # shift_summary = ShiftSummary.objects.filter(site_id=site_id, shift=shift_obj, date=date).first()
+            # general_data = {
+            #     "work_order_no": getattr(shift_obj, 'work_order_no', "N/A"),
+            #     "project_name": getattr(shift_obj, 'project_name', "N/A"),
+            #     "contractor": getattr(shift_obj, 'contractor', "N/A"),
+            #     "client": getattr(shift_obj, 'client', "N/A"),
+            #     "date": str(date),
+            #     "shift": shift,
+            #     "time_from": str(getattr(shift_obj, 'time_from', "N/A")),
+            #     "time_to": str(getattr(shift_obj, 'time_to', "N/A"))
+            # }
 
-        # Retrieve all tasks for this shift
-        tasks = Task.objects.filter(shift=shift_obj)
+            # Planned Work
+            tasks = Task.objects.filter(shift=shift_obj)
+            planned_work = []
+            for task in tasks:
+                machinery_data = [
+                    {
+                        "name": machinery.name,
+                        "number": machinery.number,
+                        "time_from": str(machinery.time_from),
+                        "time_to": str(machinery.time_to)
+                    }
+                    for machinery in task.machinery.all()
+                ]
 
-        # Retrieve quantity data
-        quantities = Quantity.objects.filter(shift=shift_obj)
-        quantity_data = [
-            {"material_name": q.material_name, "quantity": q.quantity}
-            for q in quantities
-        ]
+                planned_work.append({
+                    "task": task.name,
+                    "machinery": machinery_data,
+                    "total_labourers": getattr(task, 'total_labourers', "N/A"),
+                    "total_staff": getattr(task, 'total_staff', "N/A")
+                })
 
-        # Retrieve reconciliation data
-        reconcilations = Reconcilation.objects.filter(shift=shift_obj)
-        reconcilation_data = [
-            {
-                "lot_no": r.lot_no,
-                "lot_no_date": r.lot_no_date,
-                "used": r.used,
-                "used_date": r.used_date,
-                "left": r.left,
-                "left_date": r.left_date,
-                "returned": r.returned,
-                "returned_date": r.returned_date
-            }
-            for r in reconcilations
-        ]
-
-        # Prepare response data
-        shift_details = {
-            "site_id": site_id,
-            "date": date,
-            "shift": shift,
-            "tasks": [],
-            "quantities": quantity_data,
-            "reconcilations": reconcilation_data
-        }
-
-        # Loop through each task and get related reports
-        for task in tasks:
-            task_status = TaskStatus.objects.filter(task=task).first()
-            task_report = TaskReport.objects.filter(task_status=task_status).first()
-            reason_for_delay = ReasonForDelay.objects.filter(task_report=task_report).first()
-
-            task_data = {
-                "task_id": task.id,
-                "task_name": task.name,
-                "status": task_status.status if task_status else "Not Reported",
-                "machinery_needed": list(task.machinery.all().values_list("name", flat=True)),
-                "report": {
-                    "personnel_engaged": task_report.personnel_engaged if task_report else [],
-                    "machinery_used": task_report.machinery_used if task_report else [],
-                    "equipment_used": task_report.equipment_used if task_report else [],
-                    "personnel_idled": task_report.personnel_idled if task_report else [],
-                    "equipment_idled": task_report.equipment_idled if task_report else [],
-                    "reason_for_delay": {
-                        "reason": reason_for_delay.reason if reason_for_delay else None,
-                        "details": reason_for_delay.details if reason_for_delay else None,
-                        "location": reason_for_delay.location if reason_for_delay else None,
-                        "photo": reason_for_delay.photo.url if reason_for_delay and reason_for_delay.photo else None,
-                        "time_reported": reason_for_delay.time_reported if reason_for_delay else None
-                    } if reason_for_delay else None
+            # **Executed Work - Using Planned Data**
+            executed_work = [
+                {
+                    "task": task.name,
+                    "machinery_provided": machinery_data,
+                    "personnel_deployed": {
+                        "labour": getattr(task, 'executed_labour', "N/A"),
+                        "staff": getattr(task, 'executed_staff', "N/A")
+                    },
+                    "equipment_deployed": [
+                        {
+                            "name": equipment.name,
+                            "number": equipment.number
+                        }
+                        for equipment in getattr(task, 'equipment_used', [])
+                    ]
                 }
+                for task in tasks if getattr(task, 'status', '') == "Complete"
+            ]
+
+            # **Partially Completed Tasks - Using Planned Data**
+            partially_complete_tasks = []
+            for task in tasks.filter(status="Partially Complete"):
+                reason_for_delay = ReasonForDelay.objects.filter(task_report__task_status__task=task).first()
+                partially_complete_tasks.append({
+                    "task": task.name,
+                    "machinery_provided": machinery_data,
+                    "personnel_deployed": {
+                        "labour": getattr(task, 'executed_labour', "N/A"),
+                        "staff": getattr(task, 'executed_staff', "N/A"),
+                        "idled_labour": getattr(task, 'idled_labour', "N/A"),
+                        "idled_staff": getattr(task, 'idled_staff', "N/A")
+                    },
+                    "equipment_deployed": [
+                        {"name": e.name, "number": e.number}
+                        for e in getattr(task, 'equipment_used', [])
+                    ],
+                    "idled_equipment": [
+                        {"name": e.name, "number": e.number}
+                        for e in getattr(task, 'equipment_idled', [])
+                    ],
+                    "reason_for_partial_completion": getattr(reason_for_delay, 'reason', "N/A"),
+                    "supporting_document": reason_for_delay.photo.url if reason_for_delay and reason_for_delay.photo else "N/A"
+                })
+
+            # **Incomplete Tasks - Using Planned Data**
+            incomplete_tasks = []
+            for task in tasks.filter(status="Incomplete"):
+                reason_for_delay = ReasonForDelay.objects.filter(task_report__task_status__task=task).first()
+                incomplete_tasks.append({
+                    "task": task.name,
+                    "machinery_provided": machinery_data,
+                    "scheduled_for": str(task.shift.date),
+                    "idling": {
+                        "labour": getattr(task, 'idled_labour', "N/A"),
+                        "staff": getattr(task, 'idled_staff', "N/A"),
+                        "equipment": [
+                            {"name": e.name, "number": e.number}
+                            for e in getattr(task, 'equipment_idled', [])
+                        ]
+                    },
+                    "reason_for_task_not_completed": getattr(reason_for_delay, 'reason', "N/A"),
+                    "supporting_document": reason_for_delay.photo.url if reason_for_delay and reason_for_delay.photo else "N/A"
+                })
+
+            # **Material Reconciliation**
+            reconcilation_data = []
+            reconcilations = Reconcilation.objects.filter(shift=shift_obj)
+            for r in reconcilations:
+                reconcilation_data.append({
+                    "coil_lot_no": r.lot_no,
+                    "lot_date": str(r.lot_no_date),
+                    "used_qty": r.used,
+                    "used_date": str(r.used_date),
+                    "left_qty": r.left,
+                    "left_date": str(r.left_date),
+                    "returned_qty": r.returned,
+                    "returned_date": str(r.returned_date)
+                })
+
+            # Final Response
+            response_data = {
+                # "general": general_data,
+                "planned_work": planned_work,
+                "executed_work": executed_work,
+                "partially_complete_tasks": partially_complete_tasks,
+                "incomplete_tasks": incomplete_tasks,
+                "material_reconciliation": reconcilation_data
             }
 
-            shift_details["tasks"].append(task_data)
+            return Response(response_data, status=status.HTTP_200_OK)
 
-        # Get personnel list for the shift
-        shift_summary = ShiftSummary.objects.filter(site_id=site_id, shift=shift_obj, date=date).first()
-        shift_details["personnel_list"] = shift_summary.personnel_list if shift_summary else []
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        return Response(shift_details, status=status.HTTP_200_OK)
+
 
     
 
