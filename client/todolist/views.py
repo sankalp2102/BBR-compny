@@ -4,7 +4,7 @@ from .serializers import StateSerializer, SiteSerializer, TaskSerializer, UserRe
 import pandas as pd
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, OpenApiExample
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework import status
 from rest_framework.permissions import AllowAny, BasePermission 
@@ -155,6 +155,195 @@ class ExcelUploadView(APIView):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 class TaskSubmissionView(APIView):
+    
+    @extend_schema(
+        summary="Submit Task Report",
+        description="API to submit task reports with status and additional details.",
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "site_id": {"type": "integer", "example": 1},
+                    "date": {"type": "string", "format": "date", "example": "2025-03-25"},
+                    "shift": {"type": "string", "example": "Day"},
+                    "task_id": {"type": "integer", "nullable": True, "example": 101},
+                    "task_name": {"type": "string", "nullable": True, "example": "Concrete Pouring"},
+                    "type_of_work": {"type": "string", "example": "Construction"},
+                    "status": {
+                        "type": "string",
+                        "enum": ["Complete", "Incomplete", "Partially Complete"],
+                        "example": "Complete"
+                    },
+                    "personnel_engaged": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "role": {"type": "string", "example": "Engineer"},
+                                "count": {"type": "integer", "example": 3}
+                            }
+                        }
+                    },
+                    "machinery_used": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "example": "Crane"},
+                                "number": {"type": "integer", "example": 1}
+                            }
+                        }
+                    },
+                    "equipment_used": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "example": "Vibrator"},
+                                "number": {"type": "integer", "example": 2}
+                            }
+                        }
+                    },
+                    "personnel_idled": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "role": {"type": "string", "example": "Worker"},
+                                "count": {"type": "integer", "example": 2}
+                            }
+                        }
+                    },
+                    "equipment_idled": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "example": "Excavator"},
+                                "number": {"type": "integer", "example": 1}
+                            }
+                        }
+                    },
+                    "reason_for_delay": {
+                        "type": "object",
+                        "nullable": True,
+                        "properties": {
+                            "reason": {"type": "string", "example": "Material Shortage"},
+                            "details": {"type": "string", "example": "Steel rods were not delivered on time."}
+                        }
+                    },
+                    "latitude": {"type": "number", "format": "float", "example": 31.1048, "nullable": True},
+                    "longitude": {"type": "number", "format": "float", "example": 77.1734, "nullable": True},
+                    "photo": {"type": "string", "format": "binary", "nullable": True}
+                }
+            }
+        },
+        responses={
+            201: {"description": "Task report submitted successfully!"},
+            400: {"description": "Invalid input data"},
+            500: {"description": "Internal server error"}
+        },
+        examples=[
+            OpenApiExample(
+                "Completed Task Submission",
+                summary="Example request body for a completed task",
+                value={
+                    "site_id": 1,
+                    "date": "2025-03-25",
+                    "shift": "Day",
+                    "task_id": 101,
+                    "task_name": "Concrete Pouring",
+                    "type_of_work": "Construction",
+                    "status": "Complete",
+                    "personnel_engaged": [
+                        {"role": "Engineer", "count": 3},
+                        {"role": "Worker", "count": 10}
+                    ],
+                    "machinery_used": [
+                        {"name": "Crane", "number": 1},
+                        {"name": "Concrete Mixer", "number": 2}
+                    ],
+                    "equipment_used": [
+                        {"name": "Vibrator", "number": 2},
+                        {"name": "Scaffolding", "number": 10}
+                    ],
+                    "personnel_idled": [],
+                    "equipment_idled": []
+                }
+            ),
+            OpenApiExample(
+                "Incomplete Task Submission",
+                summary="Example request body for an incomplete task",
+                value={
+                    "site_id": 2,
+                    "date": "2025-03-25",
+                    "shift": "Night",
+                    "task_id": 102,
+                    "task_name": "Steel Fixing",
+                    "type_of_work": "Reinforcement",
+                    "status": "Incomplete",
+                    "personnel_engaged": [
+                        {"role": "Supervisor", "count": 1},
+                        {"role": "Worker", "count": 8}
+                    ],
+                    "machinery_used": [
+                        {"name": "Welding Machine", "number": 1}
+                    ],
+                    "equipment_used": [],
+                    "personnel_idled": [
+                        {"role": "Worker", "count": 4}
+                    ],
+                    "equipment_idled": [
+                        {"name": "Welding Machine", "number": 1}
+                    ],
+                    "reason_for_delay": {
+                        "reason": "Material Shortage",
+                        "details": "Steel rods were not delivered on time."
+                    },
+                    "latitude": 31.1048,
+                    "longitude": 77.1734,
+                    "photo": "(binary image file)"
+                }
+            ),
+            OpenApiExample(
+                "Partially Completed Task Submission",
+                summary="Example request body for a partially completed task",
+                value={
+                    "site_id": 3,
+                    "date": "2025-03-25",
+                    "shift": "Day",
+                    "task_id": 103,
+                    "task_name": "Excavation",
+                    "type_of_work": "Earthwork",
+                    "status": "Partially Complete",
+                    "personnel_engaged": [
+                        {"role": "Foreman", "count": 1},
+                        {"role": "Worker", "count": 12}
+                    ],
+                    "machinery_used": [
+                        {"name": "Excavator", "number": 2},
+                        {"name": "Dump Truck", "number": 3}
+                    ],
+                    "equipment_used": [
+                        {"name": "Jackhammer", "number": 1}
+                    ],
+                    "personnel_idled": [
+                        {"role": "Worker", "count": 2}
+                    ],
+                    "equipment_idled": [
+                        {"name": "Excavator", "number": 1}
+                    ],
+                    "reason_for_delay": {
+                        "reason": "Unexpected Rock Formation",
+                        "details": "Encountered hard rock formation, requiring additional blasting."
+                    },
+                    "latitude": 28.7041,
+                    "longitude": 77.1025,
+                    "photo": "(binary image file)",
+                }
+            )
+        ]
+    )
 
     def post(self, request):
         """
